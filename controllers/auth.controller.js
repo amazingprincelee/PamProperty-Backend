@@ -4,7 +4,11 @@ const User                 = require('../models/User');
 const { sendEmail, emailTemplates } = require('../services/email.service');
 const { ok, fail }         = require('../utils/response');
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const getGoogleClient = () => new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  `${process.env.SERVER_URL}/api/auth/google/callback`
+);
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -48,14 +52,29 @@ const login = async (req, res) => {
   }
 };
 
-// POST /api/auth/google
-const googleAuth = async (req, res) => {
-  try {
-    const { idToken } = req.body;
-    if (!idToken) return fail(res, 'Google ID token required.', 400);
+// GET /api/auth/google — redirect to Google consent screen
+const googleInitiate = (req, res) => {
+  const client = getGoogleClient();
+  const url = client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['openid', 'email', 'profile'],
+    prompt: 'select_account',
+  });
+  res.redirect(url);
+};
 
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
+// GET /api/auth/google/callback — exchange code, find/create user, redirect to frontend
+const googleCallback = async (req, res) => {
+  try {
+    const { code } = req.query;
+    if (!code) return res.redirect(`${process.env.CLIENT_URL}?error=google_auth_failed`);
+
+    const client = getGoogleClient();
+    const { tokens } = await client.getToken(code);
+    client.setCredentials(tokens);
+
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const { sub: googleId, email, name, picture } = ticket.getPayload();
@@ -73,9 +92,10 @@ const googleAuth = async (req, res) => {
     }
 
     const token = signToken(user._id);
-    return ok(res, { token, user }, 'Google login successful');
+    res.redirect(`${process.env.CLIENT_URL}?token=${token}`);
   } catch (err) {
-    return fail(res, 'Google authentication failed.', 401);
+    console.error('Google callback error:', err.message);
+    res.redirect(`${process.env.CLIENT_URL}?error=google_auth_failed`);
   }
 };
 
@@ -88,4 +108,4 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { register, login, googleAuth, getMe };
+module.exports = { register, login, googleInitiate, googleCallback, getMe };
