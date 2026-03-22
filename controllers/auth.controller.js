@@ -1,20 +1,28 @@
-const jwt                  = require('jsonwebtoken');
-const { OAuth2Client }     = require('google-auth-library');
-const User                 = require('../models/User');
+const jwt      = require('jsonwebtoken');
+const bcrypt   = require('bcryptjs');
+const User     = require('../models/User');
 const { sendEmail, emailTemplates } = require('../services/email.service');
-const { ok, fail }         = require('../utils/response');
+const { ok, fail } = require('../utils/response');
 
-const getGoogleClient = () => new OAuth2Client(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  `${process.env.SERVER_URL}/api/auth/google/callback`
-);
+// ─── Google OAuth helpers ──────────────────────────────────────────────────────
+const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_USER_URL  = 'https://www.googleapis.com/oauth2/v3/userinfo';
+
+function buildGoogleRedirectUri() {
+  const base = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+  return `${base}/api/auth/google/callback`;
+}
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
 
 // POST /api/auth/register
 const register = async (req, res) => {
+ 
+  console.log("Bro, you dey inside the register function o");
+  
+
   try {
     const { name, email, password, phone } = req.body;
 
@@ -26,7 +34,8 @@ const register = async (req, res) => {
 
     await sendEmail({ to: email, ...emailTemplates.welcome(name) });
 
-    return ok(res, { token, user: { _id: user._id, name: user.name, email: user.email, role: user.role, kycVerified: user.kycVerified } }, 'Registration successful', 201);
+    user.password = undefined;
+    return ok(res, { token, user }, 'Registration successful', 201);
   } catch (err) {
     return fail(res, err.message);
   }
@@ -34,8 +43,16 @@ const register = async (req, res) => {
 
 // POST /api/auth/login
 const login = async (req, res) => {
+  
+  console.log("Bro! u dey inside login o");
+  
+
   try {
     const { email, password } = req.body;
+
+    console.log("login email", email);
+    console.log("login password", password);
+    
 
     const user = await User.findOne({ email }).select('+password');
     if (!user || !user.password) return fail(res, 'Invalid credentials.', 401);
@@ -52,50 +69,80 @@ const login = async (req, res) => {
   }
 };
 
-// GET /api/auth/google — redirect to Google consent screen
+// GET /api/auth/google — redirect user to Google consent screen
 const googleInitiate = (req, res) => {
-  const client = getGoogleClient();
-  const url = client.generateAuthUrl({
-    access_type: 'offline',
-    scope: ['openid', 'email', 'profile'],
-    prompt: 'select_account',
+  const params = new URLSearchParams({
+    client_id:     process.env.GOOGLE_CLIENT_ID,
+    redirect_uri:  buildGoogleRedirectUri(),
+    response_type: 'code',
+    scope:         'openid email profile',
+    access_type:   'online',
+    prompt:        'select_account',
   });
-  res.redirect(url);
+  res.redirect(`${GOOGLE_AUTH_URL}?${params}`);
 };
 
-// GET /api/auth/google/callback — exchange code, find/create user, redirect to frontend
+// GET /api/auth/google/callback — Google redirects here with ?code=
 const googleCallback = async (req, res) => {
+  const clientUrl = process.env.NODE_ENV === 'production'
+    ? process.env.CLIENT_URL
+    : 'http://localhost:5173';
   try {
     const { code } = req.query;
-    if (!code) return res.redirect(`${process.env.CLIENT_URL}?error=google_auth_failed`);
+    if (!code) throw new Error('No code from Google');
 
-    const client = getGoogleClient();
-    const { tokens } = await client.getToken(code);
-    client.setCredentials(tokens);
-
-    const ticket = await client.verifyIdToken({
-      idToken: tokens.id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+    // Exchange code for tokens
+    const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id:     process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri:  buildGoogleRedirectUri(),
+        grant_type:    'authorization_code',
+      }),
     });
-    const { sub: googleId, email, name, picture } = ticket.getPayload();
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) throw new Error('Token exchange failed');
 
-    let user = await User.findOne({ $or: [{ googleId }, { email }] });
+    // Fetch user info from Google
+    const userRes    = await fetch(GOOGLE_USER_URL, {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const googleUser = await userRes.json();
+    if (!googleUser.email) throw new Error('Could not get email from Google');
 
-    if (!user) {
-      user = await User.create({ name, email, googleId, isGoogleUser: true, avatar: picture });
-      await sendEmail({ to: email, ...emailTemplates.welcome(name) });
-    } else if (!user.googleId) {
-      user.googleId     = googleId;
-      user.isGoogleUser = true;
-      if (!user.avatar) user.avatar = picture;
-      await user.save();
+    // Find existing user by googleId or email
+    let user = await User.findOne({
+      $or: [{ googleId: googleUser.sub }, { email: googleUser.email.toLowerCase() }],
+    });
+
+    if (user) {
+      if (!user.googleId) {
+        user.googleId     = googleUser.sub;
+        user.isGoogleUser = true;
+        if (!user.avatar) user.avatar = googleUser.picture;
+        await user.save();
+      }
+    } else {
+      user = await User.create({
+        name:         googleUser.name,
+        email:        googleUser.email.toLowerCase(),
+        googleId:     googleUser.sub,
+        isGoogleUser: true,
+        avatar:       googleUser.picture,
+        // Google users have no password — set a hash they can never guess
+        password:     await bcrypt.hash(googleUser.sub + process.env.JWT_SECRET, 10),
+      });
+      await sendEmail({ to: user.email, ...emailTemplates.welcome(user.name) });
     }
 
     const token = signToken(user._id);
-    res.redirect(`${process.env.CLIENT_URL}?token=${token}`);
+    res.redirect(`${clientUrl}?token=${token}`);
   } catch (err) {
-    console.error('Google callback error:', err.message);
-    res.redirect(`${process.env.CLIENT_URL}?error=google_auth_failed`);
+    console.error('[Google OAuth] Callback error:', err.message);
+    res.redirect(`${clientUrl}?error=google_auth_failed`);
   }
 };
 
