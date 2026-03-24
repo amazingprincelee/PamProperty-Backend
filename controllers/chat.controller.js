@@ -2,7 +2,8 @@ const Conversation = require('../models/Conversation');
 const Message      = require('../models/Message');
 const Property     = require('../models/Property');
 const { getIO }    = require('../config/socket');
-const { sendNotification } = require('../services/notification.service');
+const { sendNotification }   = require('../services/notification.service');
+const { emailTemplates }     = require('../services/email.service');
 const { ok, fail } = require('../utils/response');
 
 // GET /api/chat/conversations
@@ -75,7 +76,7 @@ const startConversation = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const { text, type = 'text', proposedDate, proposedTime, proposedNote } = req.body;
-    const conv = await Conversation.findById(req.params.convId).populate('participants', 'name');
+    const conv = await Conversation.findById(req.params.convId).populate('participants', 'name email');
     if (!conv) return fail(res, 'Conversation not found.', 404);
     if (!conv.participants.some(p => p._id.toString() === req.user._id.toString())) {
       return fail(res, 'Not authorised.', 403);
@@ -105,21 +106,27 @@ const sendMessage = async (req, res) => {
 
     const populated = await message.populate('sender', 'name avatar');
 
-    // Emit to conversation room via Socket.io
+    // Emit real-time: conversation room + recipient's personal room
+    const recipient = conv.participants.find(p => p._id.toString() !== req.user._id.toString());
     try {
       const io = getIO();
       io.to(req.params.convId).emit('new_message', populated);
+      if (recipient) io.to(recipient._id.toString()).emit('new_message', populated);
     } catch (_) {}
 
-    // Notify the other participant
-    const recipient = conv.participants.find(p => p._id.toString() !== req.user._id.toString());
+    // Notify the other participant (offline email)
     if (recipient) {
+      const preview = text ? (text.length > 80 ? text.slice(0, 80) + '…' : text) : 'Sent an inspection date proposal.';
+      const emailTpl = emailTemplates.newMessage(req.user.name, preview);
       await sendNotification({
         recipientId:         recipient._id,
+        recipientEmail:      recipient.email,
         title:               `New message from ${req.user.name}`,
-        message:             text || 'Sent an inspection date proposal.',
+        message:             preview,
         type:                'message',
         relatedConversation: conv._id,
+        emailSubject:        emailTpl.subject,
+        emailHtml:           emailTpl.html,
       });
     }
 

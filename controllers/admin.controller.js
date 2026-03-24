@@ -2,6 +2,7 @@ const Property  = require('../models/Property');
 const User      = require('../models/User');
 const Dispute   = require('../models/Dispute');
 const { sendNotification } = require('../services/notification.service');
+const { emailTemplates }   = require('../services/email.service');
 const { refundEscrow }     = require('../services/escrow.service');
 const { ok, fail } = require('../utils/response');
 
@@ -22,14 +23,18 @@ const approveProperty = async (req, res) => {
   try {
     const property = await Property.findByIdAndUpdate(
       req.params.id, { status: 'approved' }, { new: true }
-    ).populate('listedBy', 'name');
+    ).populate('listedBy', 'name email');
 
+    const et = emailTemplates.listingApproved(property.title);
     await sendNotification({
       recipientId:     property.listedBy._id,
+      recipientEmail:  property.listedBy.email,
       title:           'Listing Approved',
       message:         `Your listing "${property.title}" has been approved and is now live.`,
       type:            'listing',
       relatedProperty: property._id,
+      emailSubject:    et.subject,
+      emailHtml:       et.html,
     });
 
     return ok(res, { property }, 'Property approved.');
@@ -44,14 +49,18 @@ const rejectProperty = async (req, res) => {
     const { reason } = req.body;
     const property = await Property.findByIdAndUpdate(
       req.params.id, { status: 'rejected' }, { new: true }
-    ).populate('listedBy', 'name');
+    ).populate('listedBy', 'name email');
 
+    const et = emailTemplates.listingRejected(property.title, reason);
     await sendNotification({
       recipientId:     property.listedBy._id,
+      recipientEmail:  property.listedBy.email,
       title:           'Listing Rejected',
       message:         `Your listing "${property.title}" was rejected. Reason: ${reason || 'Does not meet requirements.'}`,
       type:            'listing',
       relatedProperty: property._id,
+      emailSubject:    et.subject,
+      emailHtml:       et.html,
     });
 
     return ok(res, { property }, 'Property rejected.');
@@ -74,11 +83,15 @@ const getAllUsers = async (req, res) => {
 const approveKyc = async (req, res) => {
   try {
     const user = await User.findByIdAndUpdate(req.params.id, { kycVerified: true }, { new: true }).select('-password');
+    const et = emailTemplates.kycApproved(user.name);
     await sendNotification({
-      recipientId: user._id,
-      title:       'KYC Verified',
-      message:     'Your identity has been verified. You can now list properties.',
-      type:        'system',
+      recipientId:    user._id,
+      recipientEmail: user.email,
+      title:          'KYC Verified',
+      message:        'Your identity has been verified. You can now list properties.',
+      type:           'system',
+      emailSubject:   et.subject,
+      emailHtml:      et.html,
     });
     return ok(res, { user }, 'KYC approved.');
   } catch (err) {

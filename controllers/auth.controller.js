@@ -4,6 +4,25 @@ const User     = require('../models/User');
 const { sendEmail, emailTemplates } = require('../services/email.service');
 const { ok, fail } = require('../utils/response');
 
+// Sends a tiny HTML page that postMessages the payload to the opener then closes.
+// Falls back to a query-string redirect if the window has no opener (direct nav).
+function popupRelay(clientUrl, payload) {
+  const json = JSON.stringify(payload);
+  const redirect = payload.token
+    ? `${clientUrl}?token=${payload.token}`
+    : `${clientUrl}?error=${payload.error}`;
+  return `<!DOCTYPE html><html><body><script>
+    try {
+      if (window.opener) {
+        window.opener.postMessage(${json}, '${clientUrl}');
+        window.close();
+      } else {
+        window.location.href = '${redirect}';
+      }
+    } catch(e) { window.location.href = '${redirect}'; }
+  <\/script></body></html>`;
+}
+
 // ─── Google OAuth helpers ──────────────────────────────────────────────────────
 const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -139,10 +158,10 @@ const googleCallback = async (req, res) => {
     }
 
     const token = signToken(user._id);
-    res.redirect(`${clientUrl}?token=${token}`);
+    res.send(popupRelay(clientUrl, { type: 'GOOGLE_AUTH_TOKEN', token }));
   } catch (err) {
     console.error('[Google OAuth] Callback error:', err.message);
-    res.redirect(`${clientUrl}?error=google_auth_failed`);
+    res.send(popupRelay(clientUrl, { type: 'GOOGLE_AUTH_ERROR', error: 'google_auth_failed' }));
   }
 };
 

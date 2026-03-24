@@ -1,8 +1,9 @@
 const HotelBooking = require('../models/HotelBooking');
 const Property     = require('../models/Property');
+const User         = require('../models/User');
 const { debitWallet, internalCredit } = require('../services/payment.service');
 const { sendNotification }            = require('../services/notification.service');
-const { sendEmail, emailTemplates }   = require('../services/email.service');
+const { emailTemplates }              = require('../services/email.service');
 const { ok, fail } = require('../utils/response');
 
 const PLATFORM_FEE_RATE = 0.10;
@@ -55,12 +56,16 @@ const createBooking = async (req, res) => {
     });
 
     // Notify hotel owner
+    const et1 = emailTemplates.newHotelBooking(req.user.name, hotel.hotelName || hotel.title, roomType, nights);
     await sendNotification({
       recipientId:         hotel.listedBy._id,
+      recipientEmail:      hotel.listedBy.email,
       title:               'New Hotel Booking',
       message:             `${req.user.name} booked a ${roomType} room for ${nights} night(s). Confirm within 2 hours or funds will be refunded.`,
       type:                'booking',
       relatedHotelBooking: booking._id,
+      emailSubject:        et1.subject,
+      emailHtml:           et1.html,
     });
 
     return ok(res, { booking }, 'Booking placed. Awaiting hotel confirmation.', 201);
@@ -103,21 +108,20 @@ const confirmBooking = async (req, res) => {
       { new: true }
     ).populate('guest hotel');
 
+    const et2 = emailTemplates.hotelBookingConfirmed(
+      booking.hotel.hotelName || booking.hotel.title,
+      booking.checkIn.toDateString(),
+      booking.checkOut.toDateString()
+    );
     await sendNotification({
       recipientId:         booking.guest._id,
+      recipientEmail:      booking.guest.email,
       title:               'Booking Confirmed',
       message:             `Your booking at ${booking.hotel.hotelName || booking.hotel.title} has been confirmed.`,
       type:                'booking',
       relatedHotelBooking: booking._id,
-    });
-
-    await sendEmail({
-      to: booking.guest.email,
-      ...emailTemplates.hotelBookingConfirmed(
-        booking.hotel.hotelName || booking.hotel.title,
-        booking.checkIn.toDateString(),
-        booking.checkOut.toDateString()
-      ),
+      emailSubject:        et2.subject,
+      emailHtml:           et2.html,
     });
 
     return ok(res, { booking }, 'Booking confirmed.');
@@ -174,12 +178,16 @@ const releaseFunds = async (req, res) => {
 
     await HotelBooking.findByIdAndUpdate(req.params.id, { status: 'released', releasedAt: new Date() });
 
+    const et3 = emailTemplates.escrowReleased(listerAmount);
     await sendNotification({
       recipientId:         hotel.listedBy._id,
+      recipientEmail:      hotel.listedBy.email,
       title:               'Booking Funds Released',
       message:             `₦${listerAmount.toLocaleString()} has been released to your wallet.`,
       type:                'payment',
       relatedHotelBooking: booking._id,
+      emailSubject:        et3.subject,
+      emailHtml:           et3.html,
     });
 
     return ok(res, {}, 'Funds released to hotel.');
