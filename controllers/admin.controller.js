@@ -1,12 +1,14 @@
 const Property  = require('../models/Property');
 const User      = require('../models/User');
 const Dispute   = require('../models/Dispute');
-const { sendNotification } = require('../services/notification.service');
-const { emailTemplates }   = require('../services/email.service');
-const { refundEscrow }     = require('../services/escrow.service');
+const { sendNotification }  = require('../services/notification.service');
+const { emailTemplates }    = require('../services/email.service');
+const { refundEscrow, adminResolveFunds } = require('../services/escrow.service');
 const { ok, fail } = require('../utils/response');
 
-// GET /api/admin/properties — pending queue
+/* ─── LISTINGS ─────────────────────────────── */
+
+// GET /api/admin/properties
 const getPendingProperties = async (req, res) => {
   try {
     const properties = await Property.find({ status: 'pending' })
@@ -25,13 +27,15 @@ const approveProperty = async (req, res) => {
       req.params.id, { status: 'approved' }, { new: true }
     ).populate('listedBy', 'name email');
 
-    const et = emailTemplates.listingApproved(property.title);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const et = emailTemplates.listingApproved(property.listedBy.name, property.title);
     await sendNotification({
       recipientId:     property.listedBy._id,
       recipientEmail:  property.listedBy.email,
       title:           'Listing Approved',
       message:         `Your listing "${property.title}" has been approved and is now live.`,
-      type:            'listing',
+      type:            'listing_approved',
       relatedProperty: property._id,
       emailSubject:    et.subject,
       emailHtml:       et.html,
@@ -48,16 +52,18 @@ const rejectProperty = async (req, res) => {
   try {
     const { reason } = req.body;
     const property = await Property.findByIdAndUpdate(
-      req.params.id, { status: 'rejected' }, { new: true }
+      req.params.id, { status: 'rejected', rejectionReason: reason || '' }, { new: true }
     ).populate('listedBy', 'name email');
 
-    const et = emailTemplates.listingRejected(property.title, reason);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const et = emailTemplates.listingRejected(property.listedBy.name, property.title, reason);
     await sendNotification({
       recipientId:     property.listedBy._id,
       recipientEmail:  property.listedBy.email,
       title:           'Listing Rejected',
       message:         `Your listing "${property.title}" was rejected. Reason: ${reason || 'Does not meet requirements.'}`,
-      type:            'listing',
+      type:            'listing_rejected',
       relatedProperty: property._id,
       emailSubject:    et.subject,
       emailHtml:       et.html,
@@ -69,42 +75,119 @@ const rejectProperty = async (req, res) => {
   }
 };
 
+/* ─── USERS ─────────────────────────────────── */
+
 // GET /api/admin/users
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    const { search, role, kycStatus } = req.query;
+    const filter = {};
+    if (role)      filter.role      = role;
+    if (kycStatus) filter.kycStatus = kycStatus;
+    if (search)    filter.$or = [
+      { name:  { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+    ];
+
+    const users = await User.find(filter).select('-password').sort({ createdAt: -1 });
     return ok(res, { users });
   } catch (err) {
     return fail(res, err.message);
   }
 };
 
-// PUT /api/admin/users/:id/kyc
-const approveKyc = async (req, res) => {
+// PUT /api/admin/users/:id/role  (super_admin only)
+const changeUserRole = async (req, res) => {
   try {
-    const user = await User.findByIdAndUpdate(req.params.id, { kycVerified: true }, { new: true }).select('-password');
-    const et = emailTemplates.kycApproved(user.name);
+    const { role } = req.body;
+    if (!['user', 'admin', 'super_admin'].includes(role)) return fail(res, 'Invalid role.', 400);
+    if (req.params.id === req.user._id.toString()) return fail(res, 'Cannot change your own role.', 400);
+
+    const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
+    if (!user) return fail(res, 'User not found.', 404);
+
     await sendNotification({
-      recipientId:    user._id,
-      recipientEmail: user.email,
-      title:          'KYC Verified',
-      message:        'Your identity has been verified. You can now list properties.',
-      type:           'system',
-      emailSubject:   et.subject,
-      emailHtml:      et.html,
+      recipientId: user._id,
+      title:       'Account Role Updated',
+      message:     `Your account role has been updated to ${role.replace('_', ' ')}.`,
+      type:        'system',
     });
-    return ok(res, { user }, 'KYC approved.');
+
+    return ok(res, { user }, `User role updated to ${role}.`);
   } catch (err) {
     return fail(res, err.message);
   }
 };
 
+/* ─── KYC ────────────────────────────────────── */
+
+// GET /api/admin/kyc
+const getKycQueue = async (req, res) => {
+  try {
+    const users = await User.find({ kycStatus: 'pending' })
+      .select('-password')
+      .sort({ kycSubmittedAt: 1 });
+    return ok(res, { users });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// PUT /api/admin/kyc/:userId/review
+const reviewKyc = async (req, res) => {
+  try {
+    const { verdict, rejectionReason } = req.body; // 'approved' or 'rejected'
+    if (!['approved', 'rejected'].includes(verdict)) return fail(res, 'Invalid verdict.', 400);
+
+    const updates = { kycStatus: verdict };
+    if (verdict === 'approved') {
+      updates.kycVerified = true;
+      updates.kycRejectionReason = '';
+    } else {
+      updates.kycVerified = false;
+      updates.kycRejectionReason = rejectionReason || 'Documents do not meet requirements.';
+    }
+
+    const user = await User.findByIdAndUpdate(req.params.userId, updates, { new: true }).select('-password');
+    if (!user) return fail(res, 'User not found.', 404);
+
+    if (verdict === 'approved') {
+      const et = emailTemplates.kycApproved(user.name);
+      await sendNotification({
+        recipientId:    user._id,
+        recipientEmail: user.email,
+        title:          'KYC Verified',
+        message:        'Your identity has been verified. You can now list properties.',
+        type:           'kyc',
+        emailSubject:   et.subject,
+        emailHtml:      et.html,
+      });
+    } else {
+      await sendNotification({
+        recipientId: user._id,
+        title:       'KYC Rejected',
+        message:     `Your KYC submission was rejected. Reason: ${updates.kycRejectionReason}`,
+        type:        'kyc',
+      });
+    }
+
+    return ok(res, { user }, `KYC ${verdict}.`);
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+/* ─── DISPUTES ───────────────────────────────── */
+
 // GET /api/admin/disputes
 const getDisputes = async (req, res) => {
   try {
-    const disputes = await Dispute.find()
-      .populate('raisedBy against', 'name email')
-      .populate('escrow hotelBooking')
+    const { status } = req.query;
+    const filter = status ? { status } : {};
+    const disputes = await Dispute.find(filter)
+      .populate('raisedBy against', 'name email avatar')
+      .populate('resolvedBy', 'name')
+      .populate({ path: 'escrow', populate: { path: 'property', select: 'title' } })
       .sort({ createdAt: -1 });
     return ok(res, { disputes });
   } catch (err) {
@@ -115,19 +198,42 @@ const getDisputes = async (req, res) => {
 // PUT /api/admin/disputes/:id/resolve
 const resolveDispute = async (req, res) => {
   try {
-    const { resolution, adminNote } = req.body; // 'seeker' or 'lister'
-    const dispute = await Dispute.findById(req.params.id).populate('escrow');
+    const { resolutionType, splitPercent, adminNote } = req.body;
+    if (!['refund_seeker', 'pay_lister', 'split'].includes(resolutionType)) {
+      return fail(res, 'Invalid resolution type.', 400);
+    }
+
+    const dispute = await Dispute.findById(req.params.id).populate('escrow raisedBy against');
     if (!dispute) return fail(res, 'Dispute not found.', 404);
 
-    if (resolution === 'seeker' && dispute.escrow) {
-      await refundEscrow(dispute.escrow._id, 'Admin resolved – refunded to seeker');
+    // Execute fund movement
+    if (dispute.escrow) {
+      await adminResolveFunds({
+        sessionId:      dispute.escrow._id,
+        resolutionType,
+        splitPercent:   splitPercent ?? 50,
+        adminNote,
+      });
     }
 
     await Dispute.findByIdAndUpdate(req.params.id, {
-      status:     `resolved_${resolution}`,
-      adminNote,
-      resolvedAt: new Date(),
+      status:         'resolved',
+      resolutionType,
+      splitPercent:   resolutionType === 'split' ? (splitPercent ?? 50) : null,
+      adminNote:      adminNote || '',
+      resolvedBy:     req.user._id,
+      resolvedAt:     new Date(),
     });
+
+    // Notify both parties
+    const msg = resolutionType === 'refund_seeker'
+      ? 'Admin has resolved the dispute in favour of the seeker. Your funds have been refunded.'
+      : resolutionType === 'pay_lister'
+      ? 'Admin has resolved the dispute in favour of the lister. Funds have been released.'
+      : `Admin has resolved the dispute with a ${splitPercent ?? 50}/${100 - (splitPercent ?? 50)} split.`;
+
+    await sendNotification({ recipientId: dispute.raisedBy._id, title: 'Dispute Resolved', message: msg, type: 'dispute' });
+    await sendNotification({ recipientId: dispute.against._id,  title: 'Dispute Resolved', message: msg, type: 'dispute' });
 
     return ok(res, {}, 'Dispute resolved.');
   } catch (err) {
@@ -135,4 +241,59 @@ const resolveDispute = async (req, res) => {
   }
 };
 
-module.exports = { getPendingProperties, approveProperty, rejectProperty, getAllUsers, approveKyc, getDisputes, resolveDispute };
+// PUT /api/admin/disputes/:id/request-info
+const requestDisputeInfo = async (req, res) => {
+  try {
+    const { fromUserId, note, deadline } = req.body;
+    const dispute = await Dispute.findByIdAndUpdate(
+      req.params.id,
+      {
+        status:            'awaiting_response',
+        infoRequestedFrom: fromUserId,
+        infoRequestNote:   note || '',
+        infoDeadline:      deadline ? new Date(deadline) : null,
+      },
+      { new: true }
+    ).populate('raisedBy against', 'name email');
+
+    if (!dispute) return fail(res, 'Dispute not found.', 404);
+
+    await sendNotification({
+      recipientId: fromUserId,
+      title:       'Admin Needs More Information',
+      message:     note || 'Admin has requested additional information regarding your dispute.',
+      type:        'dispute',
+    });
+
+    return ok(res, { dispute }, 'Information request sent.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+/* ─── ANALYTICS ──────────────────────────────── */
+
+// GET /api/admin/analytics
+const getAnalytics = async (req, res) => {
+  try {
+    const [totalUsers, totalProperties, pendingProps, kycPending, openDisputes] = await Promise.all([
+      User.countDocuments(),
+      Property.countDocuments({ status: 'approved' }),
+      Property.countDocuments({ status: 'pending' }),
+      User.countDocuments({ kycStatus: 'pending' }),
+      Dispute.countDocuments({ status: { $in: ['open', 'under_review', 'awaiting_response'] } }),
+    ]);
+
+    return ok(res, { analytics: { totalUsers, totalProperties, pendingProps, kycPending, openDisputes } });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = {
+  getPendingProperties, approveProperty, rejectProperty,
+  getAllUsers, changeUserRole,
+  getKycQueue, reviewKyc,
+  getDisputes, resolveDispute, requestDisputeInfo,
+  getAnalytics,
+};

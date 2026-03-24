@@ -39,9 +39,6 @@ const signToken = (id) =>
 // POST /api/auth/register
 const register = async (req, res) => {
  
-  console.log("Bro, you dey inside the register function o");
-  
-
   try {
     const { name, email, password, phone } = req.body;
 
@@ -66,15 +63,10 @@ const register = async (req, res) => {
 // POST /api/auth/login
 const login = async (req, res) => {
   
-  console.log("Bro! u dey inside login o");
-  
 
   try {
     const { email, password } = req.body;
 
-    console.log("login email", email);
-    console.log("login password", password);
-    
 
     const user = await User.findOne({ email }).select('+password');
     if (!user || !user.password) return fail(res, 'Invalid credentials.', 401);

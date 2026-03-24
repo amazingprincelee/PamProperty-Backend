@@ -23,11 +23,20 @@ const protect = async (req, res, next) => {
   }
 };
 
+// Allows both admin and super_admin
 const adminOnly = (req, res, next) => {
-  if (req.user?.role !== 'admin') {
+  if (!['admin', 'super_admin'].includes(req.user?.role)) {
     return res.status(403).json({ success: false, message: 'Admin access only.' });
   }
   next();
 };
 
-module.exports = { protect, adminOnly };
+// Super-admin only (for user role management)
+const superAdminOnly = (req, res, next) => {
+  if (req.user?.role !== 'super_admin') {
+    return res.status(403).json({ success: false, message: 'Super-admin access only.' });
+  }
+  next();
+};
+
+module.exports = { protect, adminOnly, superAdminOnly };

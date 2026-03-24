@@ -1,7 +1,8 @@
 const EscrowSession = require('../models/EscrowSession');
 const Property      = require('../models/Property');
 const User          = require('../models/User');
-const { createEscrow, confirmEscrow, requestRelease, releaseFunds, refundEscrow, PLATFORM_FEE_RATE } = require('../services/escrow.service');
+const Dispute       = require('../models/Dispute');
+const { createEscrow, confirmEscrow, requestRelease, releaseFunds, refundEscrow, adminResolveFunds, PLATFORM_FEE_RATE } = require('../services/escrow.service');
 const { sendNotification } = require('../services/notification.service');
 const { emailTemplates }   = require('../services/email.service');
 const { ok, fail }  = require('../utils/response');
@@ -182,27 +183,37 @@ const refund = async (req, res) => {
 // POST /api/escrow/:id/dispute
 const dispute = async (req, res) => {
   try {
-    const { reason } = req.body;
+    const { reason, evidence } = req.body;
     const session = await EscrowSession.findByIdAndUpdate(
       req.params.id,
       { status: 'disputed', disputeReason: reason, disputedAt: new Date() },
       { new: true }
     );
 
-    // Notify the other party
-    const otherParty = session.seeker.toString() === req.user._id.toString()
-      ? session.lister
-      : session.seeker;
+    if (!session) return fail(res, 'Session not found.', 404);
+
+    // Determine who the other party is
+    const isSeeker   = session.seeker.toString() === req.user._id.toString();
+    const otherParty = isSeeker ? session.lister : session.seeker;
+
+    // Create a Dispute document so admin can act on it
+    const disputeDoc = await Dispute.create({
+      raisedBy: req.user._id,
+      against:  otherParty,
+      escrow:   session._id,
+      reason:   reason || 'No reason provided.',
+      evidence: Array.isArray(evidence) ? evidence : [],
+    });
 
     await sendNotification({
       recipientId:   otherParty,
       title:         'Dispute Raised',
       message:       `${req.user.name} has raised a dispute on your escrow session. Admin will review.`,
-      type:          'escrow',
+      type:          'dispute',
       relatedEscrow: session._id,
     });
 
-    return ok(res, { session }, 'Dispute raised. Admin will review.');
+    return ok(res, { session, dispute: disputeDoc }, 'Dispute raised. Admin will review.');
   } catch (err) {
     return fail(res, err.message, 400);
   }

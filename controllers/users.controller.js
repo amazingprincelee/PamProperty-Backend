@@ -109,10 +109,23 @@ const toggleSaved = async (req, res) => {
 // POST /api/users/kyc — upload KYC docs
 const submitKyc = async (req, res) => {
   try {
+    // Direct upload — field name: "docs"
+    if (req.files?.docs) {
+      const files = Array.isArray(req.files.docs) ? req.files.docs : [req.files.docs];
+      const results = await Promise.all(
+        files.map(f => uploadToCloudinary(f.data, 'pamprop/kyc'))
+      );
+      req.uploadedUrls = results.map(r => r.secure_url);
+    }
+
     if (!req.uploadedUrls?.length) return fail(res, 'No documents uploaded.', 400);
     const user = await User.findByIdAndUpdate(
       req.user._id,
-      { kycDocuments: req.uploadedUrls },
+      {
+        kycDocuments:   req.uploadedUrls,
+        kycStatus:      'pending',
+        kycSubmittedAt: new Date(),
+      },
       { new: true }
     ).select('-password');
     return ok(res, { user }, 'KYC documents submitted for review.');

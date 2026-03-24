@@ -171,4 +171,60 @@ const refundEscrow = async (sessionId, reason = 'Auto-refund') => {
   });
 };
 
-module.exports = { createEscrow, confirmEscrow, requestRelease, releaseFunds, refundEscrow, PLATFORM_FEE_RATE };
+/* ─────────────────────────────────────────────
+   ADMIN RESOLVE (dispute resolution with optional split)
+───────────────────────────────────────────── */
+const adminResolveFunds = async ({ sessionId, resolutionType, splitPercent, adminNote }) => {
+  const session = await EscrowSession.findById(sessionId).populate('seeker lister property');
+  if (!session) throw new Error('Session not found.');
+
+  if (resolutionType === 'refund_seeker') {
+    await internalCredit({
+      userId:        session.seeker._id,
+      amount:        session.amount,
+      description:   `Admin resolved dispute – refund (${session.property?.title || 'property'})`,
+      category:      'escrow_refund',
+      relatedEscrow: session._id,
+    });
+    await EscrowSession.findByIdAndUpdate(sessionId, { status: 'refunded', resolvedAt: new Date() });
+  } else if (resolutionType === 'pay_lister') {
+    const platformFee  = Math.round(session.amount * PLATFORM_FEE_RATE);
+    const listerAmount = session.amount - platformFee;
+    await internalCredit({
+      userId:        session.lister._id,
+      amount:        listerAmount,
+      description:   `Admin resolved dispute – paid to lister (${session.property?.title || 'property'})`,
+      category:      'escrow_release',
+      relatedEscrow: session._id,
+    });
+    await EscrowSession.findByIdAndUpdate(sessionId, { status: 'released', resolvedAt: new Date() });
+  } else if (resolutionType === 'split') {
+    const pct    = Math.min(100, Math.max(0, splitPercent ?? 50));
+    const seekerAmt = Math.round(session.amount * (pct / 100));
+    const listerAmt = session.amount - seekerAmt;
+    if (seekerAmt > 0) {
+      await internalCredit({
+        userId:        session.seeker._id,
+        amount:        seekerAmt,
+        description:   `Admin split refund (${pct}%) – ${session.property?.title || 'property'}`,
+        category:      'escrow_refund',
+        relatedEscrow: session._id,
+      });
+    }
+    if (listerAmt > 0) {
+      const listerNet = listerAmt - Math.round(listerAmt * PLATFORM_FEE_RATE);
+      await internalCredit({
+        userId:        session.lister._id,
+        amount:        listerNet,
+        description:   `Admin split payment (${100 - pct}%) – ${session.property?.title || 'property'}`,
+        category:      'escrow_release',
+        relatedEscrow: session._id,
+      });
+    }
+    await EscrowSession.findByIdAndUpdate(sessionId, { status: 'released', resolvedAt: new Date() });
+  }
+
+  return session;
+};
+
+module.exports = { createEscrow, confirmEscrow, requestRelease, releaseFunds, refundEscrow, adminResolveFunds, PLATFORM_FEE_RATE };

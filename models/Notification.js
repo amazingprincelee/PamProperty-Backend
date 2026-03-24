@@ -6,7 +6,8 @@ const NotificationSchema = new mongoose.Schema({
   message:   { type: String, required: true },
   type:      {
     type: String,
-    enum: ['escrow', 'booking', 'message', 'payment', 'listing', 'system', 'availability'],
+    enum: ['escrow', 'booking', 'message', 'payment', 'listing', 'system', 'availability',
+           'listing_approved', 'listing_rejected', 'dispute', 'kyc', 'follow'],
     default: 'system',
   },
   read:      { type: Boolean, default: false },

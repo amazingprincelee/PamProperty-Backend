@@ -288,42 +288,6 @@ const emailTemplates = {
     }),
   }),
 
-  listingApproved: (propertyTitle) => ({
-    subject: 'Your Listing is Now Live!',
-    html: baseTemplate({
-      title: 'Listing Approved 🎉',
-      bodyHtml: `
-        <p>Congratulations! Your property listing has been reviewed and approved by our team.</p>
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px 20px;margin:16px 0;">
-          <div style="font-size:13px;color:#64748b;margin-bottom:4px;">Property</div>
-          <div style="font-weight:700;color:${BRAND_NAVY};font-size:16px;">${propertyTitle}</div>
-        </div>
-        <p>Your listing is now visible to thousands of seekers on Pamprop.</p>
-      `,
-      ctaText: 'View Your Listing',
-      ctaUrl: CLIENT_URL,
-    }),
-  }),
-
-  listingRejected: (propertyTitle, reason) => ({
-    subject: 'Your Listing Was Not Approved',
-    html: baseTemplate({
-      title: 'Listing Not Approved',
-      bodyHtml: `
-        <p>We reviewed your listing but were unable to approve it at this time.</p>
-        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px 20px;margin:16px 0;">
-          <div style="font-size:13px;color:#64748b;margin-bottom:4px;">Property</div>
-          <div style="font-weight:700;color:${BRAND_NAVY};font-size:15px;">${propertyTitle}</div>
-          <div style="font-size:13px;color:#64748b;margin-top:10px;">Reason</div>
-          <div style="color:#dc2626;font-size:14px;margin-top:4px;">${reason || 'Does not meet our listing requirements.'}</div>
-        </div>
-        <p>You may update your listing and resubmit for review.</p>
-      `,
-      ctaText: 'Edit &amp; Resubmit',
-      ctaUrl: CLIENT_URL,
-    }),
-  }),
-
   kycApproved: (name) => ({
     subject: 'KYC Verification Approved',
     html: baseTemplate({

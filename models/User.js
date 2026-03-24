@@ -7,15 +7,18 @@ const UserSchema = new mongoose.Schema({
   password:       { type: String, select: false }, // null for Google-only accounts
   phone:          { type: String, default: '' },
   avatar:         { type: String, default: '' },
-  role:           { type: String, enum: ['user', 'admin'], default: 'user' },
+  role:           { type: String, enum: ['user', 'admin', 'super_admin'], default: 'user' },
 
   // Auth
   googleId:       { type: String, default: null },
   isGoogleUser:   { type: Boolean, default: false },
 
   // KYC
-  kycVerified:    { type: Boolean, default: false },
-  kycDocuments:   [{ type: String }], // Cloudinary URLs
+  kycVerified:        { type: Boolean, default: false },
+  kycStatus:          { type: String, enum: ['none', 'pending', 'approved', 'rejected'], default: 'none' },
+  kycDocuments:       [{ type: String }], // Cloudinary URLs
+  kycRejectionReason: { type: String, default: '' },
+  kycSubmittedAt:     { type: Date, default: null },
 
   // Social
   following:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

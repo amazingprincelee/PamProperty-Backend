@@ -1,8 +1,9 @@
 const Property   = require('../models/Property');
 const User       = require('../models/User');
 const { ok, fail } = require('../utils/response');
-const { sendNotification } = require('../services/notification.service');
-const { emailTemplates }   = require('../services/email.service');
+const { sendNotification }   = require('../services/notification.service');
+const { emailTemplates }     = require('../services/email.service');
+const { uploadToCloudinary } = require('../middleware/upload');
 
 // GET /api/properties
 const getProperties = async (req, res) => {
@@ -66,7 +67,14 @@ const createProperty = async (req, res) => {
   try {
     const data = { ...req.body, listedBy: req.user._id, status: 'pending' };
 
-    if (req.uploadedUrls?.length) data.images = req.uploadedUrls;
+    // Direct upload — same approach as avatar. Field name: "images"
+    if (req.files?.images) {
+      const files = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
+      const results = await Promise.all(
+        files.map(f => uploadToCloudinary(f.data, 'pamprop/properties'))
+      );
+      data.images = results.map(r => r.secure_url);
+    }
 
     const property = await Property.create(data);
     return ok(res, { property }, 'Property submitted for review.', 201);

@@ -32,7 +32,7 @@ app.use('/api/wallet/webhook', express.raw({ type: 'application/json' }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(fileUpload({ useTempFiles: false, limits: { fileSize: 50 * 1024 * 1024 } })); // 50MB limit
+app.use(fileUpload({ useTempFiles: false, parseNested: true, limits: { fileSize: 50 * 1024 * 1024 } })); // 50MB limit
 app.use(apiLimiter);
 
 // ─── Routes (mounted directly — no index barrel) ───
@@ -46,6 +46,7 @@ app.use('/api/users',          require('./routes/users.routes'));
 app.use('/api/notifications',  require('./routes/notifications.routes'));
 app.use('/api/upload',         require('./routes/upload.routes'));
 app.use('/api/admin',          require('./routes/admin.routes'));
+app.use('/api/disputes',       require('./routes/disputes.routes'));
 
 // ─── Health Check ───
 app.get('/api/health', (req, res) => res.json({ status: 'Pamprop API is running.' }));
