@@ -396,6 +396,43 @@ const emailTemplates = {
     }),
   }),
 
+  listingApproved: (listerName, propertyTitle) => ({
+    subject: '🎉 Your listing is now live on Pamprop!',
+    html: baseTemplate({
+      title: 'Listing Approved ✅',
+      bodyHtml: `
+        <p>Great news, <strong>${listerName}</strong>! Your listing has been reviewed and approved.</p>
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px 20px;margin:16px 0;">
+          <div style="font-size:13px;color:#64748b;margin-bottom:4px;">Property</div>
+          <div style="font-weight:700;color:${BRAND_NAVY};font-size:16px;">${propertyTitle}</div>
+          <div style="margin-top:10px;font-size:13px;color:#16a34a;font-weight:600;">✅ Now visible to all seekers</div>
+        </div>
+        <p>Your property is now live and seekers can book inspections immediately. Keep an eye on your Requests tab for incoming bookings.</p>
+      `,
+      ctaText: 'View My Listing',
+      ctaUrl: CLIENT_URL,
+    }),
+  }),
+
+  listingRejected: (listerName, propertyTitle, reason) => ({
+    subject: 'Your listing needs some changes',
+    html: baseTemplate({
+      title: 'Listing Update Required',
+      bodyHtml: `
+        <p>Hi <strong>${listerName}</strong>, we reviewed your listing and need a few changes before it can go live.</p>
+        <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px 20px;margin:16px 0;">
+          <div style="font-size:13px;color:#64748b;margin-bottom:4px;">Property</div>
+          <div style="font-weight:700;color:${BRAND_NAVY};font-size:15px;">${propertyTitle}</div>
+          <div style="margin-top:12px;font-size:13px;color:#64748b;margin-bottom:4px;">Reason</div>
+          <div style="font-weight:600;color:#dc2626;font-size:14px;">${reason}</div>
+        </div>
+        <p>Please update your listing in the app and resubmit. Our team will re-review it promptly.</p>
+      `,
+      ctaText: 'Update My Listing',
+      ctaUrl: CLIENT_URL,
+    }),
+  }),
+
   newFollower: (followerName) => ({
     subject: `${followerName} started following you on Pamprop`,
     html: baseTemplate({

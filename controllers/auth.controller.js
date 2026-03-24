@@ -51,7 +51,10 @@ const register = async (req, res) => {
     const user = await User.create({ name, email, password, phone });
     const token = signToken(user._id);
 
-    await sendEmail({ to: email, ...emailTemplates.welcome(name) });
+    // Fire-and-forget — don't let email failure block registration
+    sendEmail({ to: email, ...emailTemplates.welcome(name) }).catch(e =>
+      console.error('[register] welcome email failed:', e.message)
+    );
 
     user.password = undefined;
     return ok(res, { token, user }, 'Registration successful', 201);

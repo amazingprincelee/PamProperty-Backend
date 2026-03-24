@@ -1,5 +1,8 @@
 const Property   = require('../models/Property');
+const User       = require('../models/User');
 const { ok, fail } = require('../utils/response');
+const { sendNotification } = require('../services/notification.service');
+const { emailTemplates }   = require('../services/email.service');
 
 // GET /api/properties
 const getProperties = async (req, res) => {
@@ -133,4 +136,58 @@ const getMyProperties = async (req, res) => {
   }
 };
 
-module.exports = { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties };
+// PUT /api/properties/:id/review  (admin only)
+const reviewListing = async (req, res) => {
+  try {
+    const { status, rejectionReason } = req.body;
+    if (!['approved', 'rejected'].includes(status)) {
+      return fail(res, 'Status must be "approved" or "rejected".', 400);
+    }
+
+    const property = await Property.findById(req.params.id).populate('listedBy', 'name email');
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    property.status = status;
+    if (status === 'rejected') property.rejectionReason = rejectionReason || 'No reason given.';
+    else property.rejectionReason = '';
+    await property.save();
+
+    // Notify lister
+    const lister = property.listedBy;
+    if (lister) {
+      const template = status === 'approved'
+        ? emailTemplates.listingApproved(lister.name, property.title)
+        : emailTemplates.listingRejected(lister.name, property.title, property.rejectionReason);
+
+      await sendNotification({
+        recipientId:    lister._id,
+        recipientEmail: lister.email,
+        type:           status === 'approved' ? 'listing_approved' : 'listing_rejected',
+        title:          status === 'approved' ? '✅ Listing Approved' : '📝 Listing Needs Changes',
+        message:        status === 'approved'
+          ? `Your listing "${property.title}" is now live.`
+          : `Your listing "${property.title}" needs changes: ${property.rejectionReason}`,
+        subject:        template.subject,
+        emailHtml:      template.html,
+      });
+    }
+
+    return ok(res, { property }, `Listing ${status}.`);
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// GET /api/properties/admin/pending  (admin only)
+const getPendingListings = async (req, res) => {
+  try {
+    const properties = await Property.find({ status: 'pending' })
+      .populate('listedBy', 'name email avatar kycVerified')
+      .sort({ createdAt: -1 });
+    return ok(res, { properties });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings };

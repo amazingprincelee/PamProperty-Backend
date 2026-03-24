@@ -6,8 +6,9 @@ const PropertySchema = new mongoose.Schema({
   type:         { type: String, enum: ['land', 'rental', 'hotel'], required: true },
   title:        { type: String, required: true, trim: true },
   description:  { type: String, default: '' },
-  status:       { type: String, enum: ['pending', 'approved', 'rejected', 'sold', 'rented'], default: 'pending' },
-  listedBy:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  status:          { type: String, enum: ['pending', 'approved', 'rejected', 'sold', 'rented'], default: 'pending' },
+  rejectionReason: { type: String, default: '' },
+  listedBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
   // Location
   address:      { type: String, default: '' },
