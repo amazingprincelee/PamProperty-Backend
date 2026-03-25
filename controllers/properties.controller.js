@@ -343,6 +343,70 @@ const deleteReply = async (req, res) => {
   }
 };
 
+// PUT /api/properties/:id/comments/:commentId
+const editComment = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) return fail(res, 'Comment text is required.', 400);
+    if (text.trim().length > 500) return fail(res, 'Comment must be 500 characters or less.', 400);
+
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const comment = property.comments.id(req.params.commentId);
+    if (!comment) return fail(res, 'Comment not found.', 404);
+
+    if (comment.user.toString() !== req.user._id.toString())
+      return fail(res, 'Not authorised.', 403);
+
+    comment.text = text.trim();
+    comment.editedAt = new Date();
+    await property.save();
+
+    const updated = await Property.findById(req.params.id)
+      .select('comments')
+      .populate('comments.user', 'name avatar kycVerified');
+
+    return ok(res, { comment: updated.comments.id(req.params.commentId) }, 'Comment updated.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// PUT /api/properties/:id/comments/:commentId/replies/:replyId
+const editReply = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) return fail(res, 'Reply text is required.', 400);
+    if (text.trim().length > 500) return fail(res, 'Reply must be 500 characters or less.', 400);
+
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const comment = property.comments.id(req.params.commentId);
+    if (!comment) return fail(res, 'Comment not found.', 404);
+
+    const reply = comment.replies.id(req.params.replyId);
+    if (!reply) return fail(res, 'Reply not found.', 404);
+
+    if (reply.user.toString() !== req.user._id.toString())
+      return fail(res, 'Not authorised.', 403);
+
+    reply.text = text.trim();
+    reply.editedAt = new Date();
+    await property.save();
+
+    const updated = await Property.findById(req.params.id)
+      .select('comments')
+      .populate('comments.replies.user', 'name avatar kycVerified');
+
+    const updatedComment = updated.comments.id(req.params.commentId);
+    return ok(res, { reply: updatedComment.replies.id(req.params.replyId) }, 'Reply updated.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
 // DELETE /api/properties/:id/comments/:commentId
 const deleteComment = async (req, res) => {
   try {
@@ -367,4 +431,4 @@ const deleteComment = async (req, res) => {
   }
 };
 
-module.exports = { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, deleteComment, addReply, deleteReply };
+module.exports = { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply };

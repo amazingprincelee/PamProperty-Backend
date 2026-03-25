@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, deleteComment, addReply, deleteReply } = require('../controllers/properties.controller');
+const { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply } = require('../controllers/properties.controller');
 const { protect, adminOnly } = require('../middleware/auth');
 const { handleUpload }       = require('../middleware/upload');
 
@@ -16,9 +16,11 @@ router.put('/:id/review',          protect, adminOnly, reviewListing);
 // Comments
 router.get('/:id/comments',                                     getComments);
 router.post('/:id/comments',                                    protect, addComment);
+router.put('/:id/comments/:commentId',                          protect, editComment);
 router.delete('/:id/comments/:commentId',                       protect, deleteComment);
 // Replies
 router.post('/:id/comments/:commentId/replies',                 protect, addReply);
+router.put('/:id/comments/:commentId/replies/:replyId',         protect, editReply);
 router.delete('/:id/comments/:commentId/replies/:replyId',      protect, deleteReply);
 
 module.exports = router;
