@@ -63,6 +63,18 @@ const PropertySchema = new mongoose.Schema({
   bookedDates:  [{ type: String }],
   listerCommission: { type: Number, default: 0 },
 
+  // ─── COMMENTS ───
+  comments: [{
+    user:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    text:      { type: String, required: true, trim: true, maxlength: 500 },
+    createdAt: { type: Date, default: Date.now },
+    replies: [{
+      user:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      text:      { type: String, required: true, trim: true, maxlength: 500 },
+      createdAt: { type: Date, default: Date.now },
+    }],
+  }],
+
 }, { timestamps: true });
 
 // Text index for search

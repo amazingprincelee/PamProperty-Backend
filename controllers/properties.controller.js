@@ -198,4 +198,173 @@ const getPendingListings = async (req, res) => {
   }
 };
 
-module.exports = { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings };
+// GET /api/properties/:id/comments
+const getComments = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id)
+      .select('comments listedBy')
+      .populate('comments.user', 'name avatar kycVerified')
+      .populate('comments.replies.user', 'name avatar kycVerified');
+    if (!property) return fail(res, 'Property not found.', 404);
+    return ok(res, { comments: property.comments, listedBy: property.listedBy });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// POST /api/properties/:id/comments
+const addComment = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) return fail(res, 'Comment text is required.', 400);
+    if (text.trim().length > 500) return fail(res, 'Comment must be 500 characters or less.', 400);
+
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    property.comments.push({ user: req.user._id, text: text.trim() });
+    await property.save();
+
+    // Populate the newly added comment's user before returning
+    const updated = await Property.findById(req.params.id)
+      .select('comments listedBy')
+      .populate('comments.user', 'name avatar kycVerified');
+
+    const newComment = updated.comments[updated.comments.length - 1];
+
+    // Notify listing owner if someone else commented
+    if (property.listedBy.toString() !== req.user._id.toString()) {
+      const owner = await User.findById(property.listedBy).select('name email');
+      if (owner) {
+        await sendNotification({
+          recipientId:     owner._id,
+          recipientEmail:  owner.email,
+          title:           'New Comment on Your Listing',
+          message:         `${req.user.name} commented on "${property.title}": "${text.trim().slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+          type:            'system',
+          relatedProperty: property._id,
+        });
+      }
+    }
+
+    return ok(res, { comment: newComment, listedBy: updated.listedBy }, 'Comment added.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// POST /api/properties/:id/comments/:commentId/replies
+const addReply = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) return fail(res, 'Reply text is required.', 400);
+    if (text.trim().length > 500) return fail(res, 'Reply must be 500 characters or less.', 400);
+
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const comment = property.comments.id(req.params.commentId);
+    if (!comment) return fail(res, 'Comment not found.', 404);
+
+    comment.replies.push({ user: req.user._id, text: text.trim() });
+    await property.save();
+
+    // Populate the reply user
+    const updated = await Property.findById(req.params.id)
+      .select('comments listedBy')
+      .populate('comments.user', 'name avatar kycVerified')
+      .populate('comments.replies.user', 'name avatar kycVerified');
+
+    const updatedComment = updated.comments.id(req.params.commentId);
+    const newReply = updatedComment.replies[updatedComment.replies.length - 1];
+
+    // Notify the comment author (if they're not the one replying)
+    const commentAuthorId = comment.user.toString();
+    if (commentAuthorId !== req.user._id.toString()) {
+      const commentAuthor = await User.findById(commentAuthorId).select('name email');
+      if (commentAuthor) {
+        await sendNotification({
+          recipientId:     commentAuthor._id,
+          recipientEmail:  commentAuthor.email,
+          title:           'New Reply to Your Comment',
+          message:         `${req.user.name} replied to your comment: "${text.trim().slice(0, 80)}${text.length > 80 ? '…' : ''}"`,
+          type:            'system',
+          relatedProperty: property._id,
+        });
+      }
+    }
+
+    // Also notify listing owner if they're different from commenter and replier
+    const ownerId = property.listedBy.toString();
+    if (ownerId !== req.user._id.toString() && ownerId !== commentAuthorId) {
+      const owner = await User.findById(ownerId).select('name email');
+      if (owner) {
+        await sendNotification({
+          recipientId:     owner._id,
+          recipientEmail:  owner.email,
+          title:           'New Reply on Your Listing',
+          message:         `${req.user.name} replied to a comment on "${property.title}"`,
+          type:            'system',
+          relatedProperty: property._id,
+        });
+      }
+    }
+
+    return ok(res, { reply: newReply }, 'Reply added.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// DELETE /api/properties/:id/comments/:commentId/replies/:replyId
+const deleteReply = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const comment = property.comments.id(req.params.commentId);
+    if (!comment) return fail(res, 'Comment not found.', 404);
+
+    const reply = comment.replies.id(req.params.replyId);
+    if (!reply) return fail(res, 'Reply not found.', 404);
+
+    const isOwner  = reply.user.toString() === req.user._id.toString();
+    const isAdmin  = ['admin', 'super_admin'].includes(req.user.role);
+    const isLister = property.listedBy.toString() === req.user._id.toString();
+
+    if (!isOwner && !isAdmin && !isLister) return fail(res, 'Not authorised.', 403);
+
+    reply.deleteOne();
+    await property.save();
+
+    return ok(res, {}, 'Reply deleted.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// DELETE /api/properties/:id/comments/:commentId
+const deleteComment = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const comment = property.comments.id(req.params.commentId);
+    if (!comment) return fail(res, 'Comment not found.', 404);
+
+    const isOwner  = comment.user.toString() === req.user._id.toString();
+    const isAdmin  = ['admin', 'super_admin'].includes(req.user.role);
+    const isLister = property.listedBy.toString() === req.user._id.toString();
+
+    if (!isOwner && !isAdmin && !isLister) return fail(res, 'Not authorised.', 403);
+
+    comment.deleteOne();
+    await property.save();
+
+    return ok(res, {}, 'Comment deleted.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getProperties, getPropertyById, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, deleteComment, addReply, deleteReply };
