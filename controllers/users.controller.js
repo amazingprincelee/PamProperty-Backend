@@ -23,12 +23,21 @@ const updateUser = async (req, res) => {
   try {
     if (req.params.id !== req.user._id.toString()) return fail(res, 'Not authorised.', 403);
 
-    const { name, phone, emailNotifs, avatar } = req.body || {};
+    const { name, phone, emailNotifs, avatar, userType, state, lga, address, bio, agencyName, cacNumber, yearsOfExperience, onboardingDone } = req.body || {};
     const updates = {};
-    if (name)                      updates.name         = name;
-    if (phone)                     updates.phone        = phone;
-    if (avatar)                    updates.avatar       = avatar;
-    if (emailNotifs !== undefined) updates.emailNotifs  = emailNotifs;
+    if (name)                        updates.name              = name;
+    if (phone)                       updates.phone             = phone;
+    if (avatar)                      updates.avatar            = avatar;
+    if (emailNotifs !== undefined)   updates.emailNotifs       = emailNotifs;
+    if (userType)                    updates.userType          = userType;
+    if (state  !== undefined)        updates.state             = state;
+    if (lga    !== undefined)        updates.lga               = lga;
+    if (address !== undefined)       updates.address           = address;
+    if (bio    !== undefined)        updates.bio               = bio;
+    if (agencyName !== undefined)    updates.agencyName        = agencyName;
+    if (cacNumber !== undefined)     updates.cacNumber         = cacNumber;
+    if (yearsOfExperience !== undefined) updates.yearsOfExperience = yearsOfExperience;
+    if (onboardingDone !== undefined)    updates.onboardingDone    = onboardingDone;
 
     // Handle direct file upload (field name: avatar)
     if (req.files?.avatar) {

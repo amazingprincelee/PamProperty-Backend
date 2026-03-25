@@ -30,6 +30,17 @@ const UserSchema = new mongoose.Schema({
 
   // Notifications preferences
   emailNotifs:    { type: Boolean, default: true },
+
+  // Profile completion fields
+  userType:          { type: String, enum: ['seeker', 'owner', 'agent', 'hotel_manager'], default: null },
+  state:             { type: String, default: '' },
+  lga:               { type: String, default: '' },
+  address:           { type: String, default: '' },
+  bio:               { type: String, default: '' },
+  agencyName:        { type: String, default: '' },
+  cacNumber:         { type: String, default: '' },
+  yearsOfExperience: { type: Number, default: null },
+  onboardingDone:    { type: Boolean, default: false },
 }, { timestamps: true });
 
 // Hash password before save
