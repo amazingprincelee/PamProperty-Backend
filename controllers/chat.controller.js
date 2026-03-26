@@ -75,7 +75,7 @@ const startConversation = async (req, res) => {
 // POST /api/chat/:convId/messages
 const sendMessage = async (req, res) => {
   try {
-    const { text, type = 'text', proposedDate, proposedTime, proposedNote } = req.body;
+    const { text, type = 'text', proposedDate, proposedTime, proposedNote, attachmentUrl, attachmentName, attachmentSize } = req.body;
     const conv = await Conversation.findById(req.params.convId).populate('participants', 'name email');
     if (!conv) return fail(res, 'Conversation not found.', 404);
     if (!conv.participants.some(p => p._id.toString() === req.user._id.toString())) {
@@ -83,14 +83,17 @@ const sendMessage = async (req, res) => {
     }
 
     const message = await Message.create({
-      conversation:  req.params.convId,
-      sender:        req.user._id,
+      conversation:   req.params.convId,
+      sender:         req.user._id,
       type,
-      text:          text || '',
-      proposedDate:  proposedDate || null,
-      proposedTime:  proposedTime || null,
-      proposedNote:  proposedNote || null,
-      readBy:        [req.user._id],
+      text:           text || '',
+      attachmentUrl:  attachmentUrl  || null,
+      attachmentName: attachmentName || null,
+      attachmentSize: attachmentSize || null,
+      proposedDate:   proposedDate || null,
+      proposedTime:   proposedTime || null,
+      proposedNote:   proposedNote || null,
+      readBy:         [req.user._id],
     });
 
     // Update conversation last message
@@ -157,4 +160,14 @@ const respondToProposal = async (req, res) => {
   }
 };
 
-module.exports = { getConversations, getMessages, startConversation, sendMessage, respondToProposal };
+// POST /api/chat/upload
+const uploadChatFile = async (req, res) => {
+  try {
+    if (!req.uploadedUrls?.length) return fail(res, 'No file uploaded.', 400);
+    return ok(res, { url: req.uploadedUrls[0] });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getConversations, getMessages, startConversation, sendMessage, respondToProposal, uploadChatFile };
