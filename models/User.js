@@ -16,9 +16,14 @@ const UserSchema = new mongoose.Schema({
   // KYC
   kycVerified:        { type: Boolean, default: false },
   kycStatus:          { type: String, enum: ['none', 'pending', 'approved', 'rejected'], default: 'none' },
-  kycDocuments:       [{ type: String }], // Cloudinary URLs
+  kycDocuments:       [{ type: String }], // Cloudinary URLs — proof of address
   kycRejectionReason: { type: String, default: '' },
   kycSubmittedAt:     { type: Date, default: null },
+  // NIN verification
+  nin:                { type: String, default: '' },
+  ninName:            { type: String, default: '' },
+  ninDob:             { type: String, default: '' },
+  ninVerified:        { type: Boolean, default: false },
 
   // Social
   following:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

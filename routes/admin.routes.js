@@ -6,6 +6,7 @@ const {
   getDisputes, resolveDispute, requestDisputeInfo,
   getAnalytics,
 } = require('../controllers/admin.controller');
+const { getAllTickets, updateTicketStatus, replyToTicket } = require('../controllers/support.controller');
 const { protect, adminOnly, superAdminOnly } = require('../middleware/auth');
 
 // All admin routes require auth + at least admin role
@@ -31,5 +32,10 @@ router.put('/disputes/:id/request-info', requestDisputeInfo);
 
 // Analytics
 router.get('/analytics',                 getAnalytics);
+
+// Support tickets
+router.get('/support',                   getAllTickets);
+router.put('/support/:id/status',        updateTicketStatus);
+router.post('/support/:id/reply',        replyToTicket);
 
 module.exports = router;

@@ -115,10 +115,12 @@ const toggleSaved = async (req, res) => {
   }
 };
 
-// POST /api/users/kyc — upload KYC docs
+// POST /api/users/kyc — submit NIN + upload proof of address docs
 const submitKyc = async (req, res) => {
   try {
-    // Direct upload — field name: "docs"
+    const { nin, ninName, ninDob } = req.body;
+
+    // Upload proof-of-address documents if provided
     if (req.files?.docs) {
       const files = Array.isArray(req.files.docs) ? req.files.docs : [req.files.docs];
       const results = await Promise.all(
@@ -127,20 +129,33 @@ const submitKyc = async (req, res) => {
       req.uploadedUrls = results.map(r => r.secure_url);
     }
 
-    if (!req.uploadedUrls?.length) return fail(res, 'No documents uploaded.', 400);
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      {
-        kycDocuments:   req.uploadedUrls,
-        kycStatus:      'pending',
-        kycSubmittedAt: new Date(),
-      },
-      { new: true }
-    ).select('-password');
-    return ok(res, { user }, 'KYC documents submitted for review.');
+    // Must have NIN or documents (or both)
+    if (!nin && !req.uploadedUrls?.length) {
+      return fail(res, 'Please provide your NIN or upload a document.', 400);
+    }
+
+    const update = {
+      kycStatus:      'pending',
+      kycSubmittedAt: new Date(),
+    };
+    if (nin)                      { update.nin = nin; update.ninName = ninName || ''; update.ninDob = ninDob || ''; }
+    if (req.uploadedUrls?.length) { update.kycDocuments = req.uploadedUrls; }
+
+    const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select('-password');
+    return ok(res, { user }, 'KYC submitted for review. We will verify within 24–48 hours.');
   } catch (err) {
     return fail(res, err.message);
   }
 };
 
-module.exports = { getUser, updateUser, toggleFollow, getUserListings, toggleSaved, submitKyc };
+// GET /api/users/kyc — get current user's KYC status
+const getKycStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('kycVerified kycStatus kycDocuments kycRejectionReason kycSubmittedAt nin ninName ninDob ninVerified');
+    return ok(res, { kyc: user });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getUser, updateUser, toggleFollow, getUserListings, toggleSaved, submitKyc, getKycStatus };

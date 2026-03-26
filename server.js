@@ -47,6 +47,7 @@ app.use('/api/notifications',  require('./routes/notifications.routes'));
 app.use('/api/upload',         require('./routes/upload.routes'));
 app.use('/api/admin',          require('./routes/admin.routes'));
 app.use('/api/disputes',       require('./routes/disputes.routes'));
+app.use('/api/support',        require('./routes/support.routes'));
 
 // ─── Health Check ───
 app.get('/api/health', (req, res) => res.json({ status: 'Pamprop API is running.' }));
