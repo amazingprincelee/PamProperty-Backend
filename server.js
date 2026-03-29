@@ -50,7 +50,7 @@ app.use('/api/disputes',       require('./routes/disputes.routes'));
 app.use('/api/support',        require('./routes/support.routes'));
 
 // ─── Health Check ───
-app.get('/api/health', (req, res) => res.json({ status: 'Pamprop API is running.' }));
+app.get('/api/health', (req, res) => res.json({ status: 'PamProperty API is running.' }));
 
 // ─── 404 Handler ───
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found.' }));
@@ -66,4 +66,4 @@ startCronJobs();
 
 // ─── Start Server ───
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => console.log(`Pamprop server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`PamProperty server running on port ${PORT}`));
