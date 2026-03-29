@@ -24,7 +24,7 @@ initSocket(server);
 // ─── Global Middleware ───
 app.use(helmet());
 app.use(compression());
-const allowedOrigins = [process.env.CLIENT_URL, 'http://localhost:5173', 'http://localhost:3000'].filter(Boolean);
+const allowedOrigins = [process.env.CLIENT_URL,'https://pamproperty.vercel.app', 'http://localhost:5173', 'http://localhost:3000'].filter(Boolean);
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Raw body for Paystack webhook (must come before express.json)
@@ -51,6 +51,36 @@ app.use('/api/support',        require('./routes/support.routes'));
 
 // ─── Health Check ───
 app.get('/api/health', (req, res) => res.json({ status: 'PamProperty API is running.' }));
+
+// ─── Sitemap ───
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const Property = require('./models/Property');
+    const props = await Property.find({ status: 'approved' }, '_id type updatedAt').lean();
+    const base  = 'https://pamproperty.com';
+    const static_urls = [
+      { loc: base, priority: '1.0' },
+      { loc: `${base}/agents`, priority: '0.7' },
+    ];
+    const prop_urls = props.map(p => ({
+      loc:      `${base}/property/${p.type}/${p._id}`,
+      lastmod:  (p.updatedAt || new Date()).toISOString().split('T')[0],
+      priority: p.type === 'hotel' ? '0.9' : '0.8',
+    }));
+    const all = [...static_urls, ...prop_urls];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${all.map(u => `  <url>
+    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ''}
+    <priority>${u.priority || '0.8'}</priority>
+  </url>`).join('\n')}
+</urlset>`;
+    res.header('Content-Type', 'application/xml');
+    res.send(xml);
+  } catch (e) {
+    res.status(500).send('');
+  }
+});
 
 // ─── 404 Handler ───
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found.' }));
