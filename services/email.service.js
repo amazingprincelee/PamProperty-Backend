@@ -124,7 +124,7 @@ const baseTemplate = ({ title, bodyHtml, ctaText, ctaUrl }) => `
             text-align:center;
           ">
             <p style="margin:0 0 6px;font-size:12px;color:#94a3b8;">
-              This email was sent by <strong style="color:${BRAND_NAVY};">Pamprop</strong> — Property Trust Platform
+              This email was sent by <strong style="color:${BRAND_NAVY};">PamProperty</strong> — Property Acquisition &amp; Management
             </p>
             <p style="margin:0;font-size:11px;color:#cbd5e1;">
               © ${new Date().getFullYear()} Pamprop. All rights reserved.
