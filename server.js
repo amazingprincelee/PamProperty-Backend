@@ -99,3 +99,6 @@ startCronJobs();
 // ─── Start Server ───
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`PamProperty server running on port ${PORT}`));
+
+
+//delete later
