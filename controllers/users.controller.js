@@ -158,4 +158,15 @@ const getKycStatus = async (req, res) => {
   }
 };
 
-module.exports = { getUser, updateUser, toggleFollow, getUserListings, toggleSaved, submitKyc, getKycStatus };
+// PUT /api/users/me/fcm-token
+const saveFcmToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    await User.findByIdAndUpdate(req.user._id, { fcmToken: fcmToken || null });
+    return ok(res, null, 'FCM token saved');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getUser, updateUser, toggleFollow, getUserListings, toggleSaved, submitKyc, getKycStatus, saveFcmToken };

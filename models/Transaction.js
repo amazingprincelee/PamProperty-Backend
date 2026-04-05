@@ -8,7 +8,7 @@ const TransactionSchema = new mongoose.Schema({
   description: { type: String, required: true },
   category:    {
     type: String,
-    enum: ['topup', 'withdrawal', 'escrow_hold', 'escrow_release', 'escrow_refund', 'hotel_payment', 'hotel_refund', 'platform_fee'],
+    enum: ['topup', 'withdrawal', 'escrow_hold', 'escrow_release', 'escrow_refund', 'hotel_payment', 'hotel_refund', 'platform_fee', 'referral_bonus'],
     required: true,
   },
 

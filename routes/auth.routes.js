@@ -1,5 +1,5 @@
 const router  = require('express').Router();
-const { register, login, googleInitiate, googleCallback, getMe } = require('../controllers/auth.controller');
+const { register, login, googleInitiate, googleCallback, googleMobile, getMe } = require('../controllers/auth.controller');
 const { protect }      = require('../middleware/auth');
 const { authLimiter }  = require('../middleware/rateLimiter');
 const validate         = require('../middleware/validate');
@@ -12,6 +12,7 @@ router.post('/register',        authLimiter, validate(registerSchema), register)
 router.post('/login',           authLimiter, validate(loginSchema),    login);
 router.get('/google',           googleInitiate);
 router.get('/google/callback',  googleCallback);
+router.post('/google/mobile',   authLimiter, googleMobile);
 router.get('/me',               protect,     getMe);
 
 module.exports = router;

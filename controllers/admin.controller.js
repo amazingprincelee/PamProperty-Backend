@@ -39,6 +39,7 @@ const approveProperty = async (req, res) => {
       relatedProperty: property._id,
       emailSubject:    et.subject,
       emailHtml:       et.html,
+      whatsappEnabled: true,
     });
 
     return ok(res, { property }, 'Property approved.');
@@ -67,6 +68,7 @@ const rejectProperty = async (req, res) => {
       relatedProperty: property._id,
       emailSubject:    et.subject,
       emailHtml:       et.html,
+      whatsappEnabled: true,
     });
 
     return ok(res, { property }, 'Property rejected.');
@@ -154,20 +156,22 @@ const reviewKyc = async (req, res) => {
     if (verdict === 'approved') {
       const et = emailTemplates.kycApproved(user.name);
       await sendNotification({
-        recipientId:    user._id,
-        recipientEmail: user.email,
-        title:          'KYC Verified',
-        message:        'Your identity has been verified. You can now list properties.',
-        type:           'kyc',
-        emailSubject:   et.subject,
-        emailHtml:      et.html,
+        recipientId:     user._id,
+        recipientEmail:  user.email,
+        title:           'KYC Verified',
+        message:         'Your identity has been verified. You can now list properties.',
+        type:            'kyc',
+        emailSubject:    et.subject,
+        emailHtml:       et.html,
+        whatsappEnabled: true,
       });
     } else {
       await sendNotification({
-        recipientId: user._id,
-        title:       'KYC Rejected',
-        message:     `Your KYC submission was rejected. Reason: ${updates.kycRejectionReason}`,
-        type:        'kyc',
+        recipientId:     user._id,
+        title:           'KYC Rejected',
+        message:         `Your KYC submission was rejected. Reason: ${updates.kycRejectionReason}`,
+        type:            'kyc',
+        whatsappEnabled: true,
       });
     }
 
@@ -232,8 +236,8 @@ const resolveDispute = async (req, res) => {
       ? 'Admin has resolved the dispute in favour of the lister. Funds have been released.'
       : `Admin has resolved the dispute with a ${splitPercent ?? 50}/${100 - (splitPercent ?? 50)} split.`;
 
-    await sendNotification({ recipientId: dispute.raisedBy._id, title: 'Dispute Resolved', message: msg, type: 'dispute' });
-    await sendNotification({ recipientId: dispute.against._id,  title: 'Dispute Resolved', message: msg, type: 'dispute' });
+    await sendNotification({ recipientId: dispute.raisedBy._id, title: 'Dispute Resolved', message: msg, type: 'dispute', whatsappEnabled: true });
+    await sendNotification({ recipientId: dispute.against._id,  title: 'Dispute Resolved', message: msg, type: 'dispute', whatsappEnabled: true });
 
     return ok(res, {}, 'Dispute resolved.');
   } catch (err) {

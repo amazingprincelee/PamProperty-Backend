@@ -1,9 +1,30 @@
-const EscrowSession  = require('../models/EscrowSession');
+const EscrowSession    = require('../models/EscrowSession');
+const PlatformSettings = require('../models/PlatformSettings');
 const { debitWallet, internalCredit } = require('./payment.service');
 const { sendNotification }            = require('./notification.service');
 const { sendEmail, emailTemplates }   = require('./email.service');
+const { creditReferrerBonus }         = require('./referral.service');
 
-const PLATFORM_FEE_RATE = 0.10; // 10%
+const PLATFORM_FEE_RATE = 0.10; // 10% — used for general escrow only
+
+/**
+ * Compute system cut based on escrow type
+ * Returns { systemCut, listerAmount }
+ */
+const computeFees = async (escrowType, amount) => {
+  let systemCut;
+  if (escrowType === 'inspection') {
+    systemCut = await PlatformSettings.get('inspection_system_cut', 1000);
+  } else if (escrowType === 'bush_entry') {
+    systemCut = await PlatformSettings.get('bush_entry_system_cut', 5000);
+  } else if (escrowType === 'hotel_booking') {
+    const commissionPct = await PlatformSettings.get('hotel_commission_pct', 5);
+    systemCut = Math.round(amount * (commissionPct / 100));
+  } else {
+    systemCut = Math.round(amount * PLATFORM_FEE_RATE);
+  }
+  return { systemCut, listerAmount: amount - systemCut };
+};
 
 /* ─────────────────────────────────────────────
    CREATE ESCROW SESSION
@@ -32,12 +53,13 @@ const createEscrow = async ({ seekerId, listerId, propertyId, amount, seekerUser
 
   // Notify lister
   await sendNotification({
-    recipientId:     listerId,
-    title:           'New Inspection Request',
-    message:         `${seekerUser.name} has placed an escrow deposit for ${property.title}. Confirm to proceed.`,
-    type:            'escrow',
-    relatedEscrow:   session._id,
-    relatedProperty: propertyId,
+    recipientId:      listerId,
+    title:            'New Inspection Request',
+    message:          `${seekerUser.name} has placed an escrow deposit for ${property.title}. Confirm to proceed.`,
+    type:             'escrow',
+    relatedEscrow:    session._id,
+    relatedProperty:  propertyId,
+    whatsappEnabled:  true,
   });
 
   return session;
@@ -65,11 +87,12 @@ const confirmEscrow = async ({ sessionId, inspectionDate, inspectionTime, inspec
 
   // Notify seeker
   await sendNotification({
-    recipientId:   session.seeker._id,
-    title:         'Inspection Confirmed',
-    message:       `${listerUser.name} confirmed your inspection for ${new Date(inspectionDate).toDateString()} at ${inspectionTime}.`,
-    type:          'escrow',
-    relatedEscrow: session._id,
+    recipientId:     session.seeker._id,
+    title:           'Inspection Confirmed',
+    message:         `${listerUser.name} confirmed your inspection for ${new Date(inspectionDate).toDateString()} at ${inspectionTime}.`,
+    type:            'escrow',
+    relatedEscrow:   session._id,
+    whatsappEnabled: true,
   });
 
   await sendEmail({
@@ -91,11 +114,12 @@ const requestRelease = async ({ sessionId, listerUser }) => {
   ).populate('seeker property');
 
   await sendNotification({
-    recipientId:   session.seeker._id,
-    title:         'Payment Release Requested',
-    message:       `${listerUser.name} has requested payment release for ${session.property.title}. Approve to release funds.`,
-    type:          'escrow',
-    relatedEscrow: session._id,
+    recipientId:     session.seeker._id,
+    title:           'Payment Release Requested',
+    message:         `${listerUser.name} has requested payment release for ${session.property.title}. Approve to release funds.`,
+    type:            'escrow',
+    relatedEscrow:   session._id,
+    whatsappEnabled: true,
   });
 
   return session;
@@ -109,10 +133,9 @@ const releaseFunds = async ({ sessionId, seekerUser }) => {
   if (!session) throw new Error('Session not found.');
   if (session.status !== 'payment_requested') throw new Error('Release not yet requested.');
 
-  const platformFee  = Math.round(session.amount * PLATFORM_FEE_RATE);
-  const listerAmount = session.amount - platformFee;
+  const { systemCut, listerAmount } = await computeFees(session.escrowType, session.amount);
 
-  // Credit lister wallet (minus platform fee)
+  // Credit lister wallet
   await internalCredit({
     userId:        session.lister._id,
     amount:        listerAmount,
@@ -121,15 +144,26 @@ const releaseFunds = async ({ sessionId, seekerUser }) => {
     relatedEscrow: session._id,
   });
 
-  await EscrowSession.findByIdAndUpdate(sessionId, { status: 'released', resolvedAt: new Date() });
+  await EscrowSession.findByIdAndUpdate(sessionId, { status: 'released', resolvedAt: new Date(), referrerCredited: false });
+
+  // Credit referrer if applicable
+  const referralResult = await creditReferrerBonus({
+    listerId:      session.lister._id,
+    systemCut,
+    relatedEscrow: session._id,
+  });
+  if (referralResult) {
+    await EscrowSession.findByIdAndUpdate(sessionId, { referrerCredited: true });
+  }
 
   // Notify lister
   await sendNotification({
-    recipientId:   session.lister._id,
-    title:         'Funds Released',
-    message:       `₦${listerAmount.toLocaleString()} has been released to your wallet (₦${platformFee.toLocaleString()} platform fee deducted).`,
-    type:          'payment',
-    relatedEscrow: session._id,
+    recipientId:     session.lister._id,
+    title:           'Funds Released',
+    message:         `₦${listerAmount.toLocaleString()} has been released to your wallet (₦${systemCut.toLocaleString()} platform fee deducted).`,
+    type:            'payment',
+    relatedEscrow:   session._id,
+    whatsappEnabled: true,
   });
 
   await sendEmail({
@@ -137,7 +171,7 @@ const releaseFunds = async ({ sessionId, seekerUser }) => {
     ...emailTemplates.escrowReleased(listerAmount),
   });
 
-  return { listerAmount, platformFee };
+  return { listerAmount, platformFee: systemCut };
 };
 
 /* ─────────────────────────────────────────────
@@ -158,11 +192,12 @@ const refundEscrow = async (sessionId, reason = 'Auto-refund') => {
   await EscrowSession.findByIdAndUpdate(sessionId, { status: 'refunded', resolvedAt: new Date() });
 
   await sendNotification({
-    recipientId:   session.seeker._id,
-    title:         'Escrow Refunded',
-    message:       `₦${session.amount.toLocaleString()} has been refunded to your wallet.`,
-    type:          'payment',
-    relatedEscrow: session._id,
+    recipientId:     session.seeker._id,
+    title:           'Escrow Refunded',
+    message:         `₦${session.amount.toLocaleString()} has been refunded to your wallet.`,
+    type:            'payment',
+    relatedEscrow:   session._id,
+    whatsappEnabled: true,
   });
 
   await sendEmail({
@@ -188,8 +223,7 @@ const adminResolveFunds = async ({ sessionId, resolutionType, splitPercent, admi
     });
     await EscrowSession.findByIdAndUpdate(sessionId, { status: 'refunded', resolvedAt: new Date() });
   } else if (resolutionType === 'pay_lister') {
-    const platformFee  = Math.round(session.amount * PLATFORM_FEE_RATE);
-    const listerAmount = session.amount - platformFee;
+    const { systemCut: platformFee, listerAmount } = await computeFees(session.escrowType, session.amount);
     await internalCredit({
       userId:        session.lister._id,
       amount:        listerAmount,
@@ -212,7 +246,8 @@ const adminResolveFunds = async ({ sessionId, resolutionType, splitPercent, admi
       });
     }
     if (listerAmt > 0) {
-      const listerNet = listerAmt - Math.round(listerAmt * PLATFORM_FEE_RATE);
+      const { systemCut: splitFee } = await computeFees(session.escrowType, listerAmt);
+      const listerNet = listerAmt - splitFee;
       await internalCredit({
         userId:        session.lister._id,
         amount:        listerNet,

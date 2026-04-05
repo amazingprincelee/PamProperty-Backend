@@ -66,6 +66,7 @@ const createBooking = async (req, res) => {
       relatedHotelBooking: booking._id,
       emailSubject:        et1.subject,
       emailHtml:           et1.html,
+      whatsappEnabled:     true,
     });
 
     return ok(res, { booking }, 'Booking placed. Awaiting hotel confirmation.', 201);
@@ -122,6 +123,7 @@ const confirmBooking = async (req, res) => {
       relatedHotelBooking: booking._id,
       emailSubject:        et2.subject,
       emailHtml:           et2.html,
+      whatsappEnabled:     true,
     });
 
     return ok(res, { booking }, 'Booking confirmed.');
@@ -188,6 +190,7 @@ const releaseFunds = async (req, res) => {
       relatedHotelBooking: booking._id,
       emailSubject:        et3.subject,
       emailHtml:           et3.html,
+      whatsappEnabled:     true,
     });
 
     return ok(res, {}, 'Funds released to hotel.');

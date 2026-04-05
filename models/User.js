@@ -31,7 +31,13 @@ const UserSchema = new mongoose.Schema({
   savedProperties:[{ type: mongoose.Schema.Types.ObjectId, ref: 'Property' }],
 
   // Referral
-  referralCode:   { type: String, unique: true },
+  referralCode:     { type: String, unique: true },
+  referredBy:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  referralBalance:  { type: Number, default: 0 },   // earnings available to withdraw
+  referralEarned:   { type: Number, default: 0 },   // lifetime total earned
+
+  // Push notifications
+  fcmToken:       { type: String, default: null },
 
   // Notifications preferences
   emailNotifs:    { type: Boolean, default: true },

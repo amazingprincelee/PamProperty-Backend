@@ -40,12 +40,19 @@ const signToken = (id) =>
 const register = async (req, res) => {
  
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone, referralCode } = req.body;
 
     const exists = await User.findOne({ email });
     if (exists) return fail(res, 'Email already registered.', 400);
 
-    const user = await User.create({ name, email, password, phone });
+    // Resolve referral code → referredBy
+    let referredBy = null;
+    if (referralCode) {
+      const referrer = await User.findOne({ referralCode }).select('_id');
+      if (referrer) referredBy = referrer._id;
+    }
+
+    const user = await User.create({ name, email, password, phone, referredBy });
     const token = signToken(user._id);
 
     // Fire-and-forget — don't let email failure block registration
@@ -160,6 +167,48 @@ const googleCallback = async (req, res) => {
   }
 };
 
+// POST /api/auth/google/mobile
+// Body: { idToken }  — id_token from @react-native-google-signin/google-signin
+const googleMobile = async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) return fail(res, 'idToken is required', 400);
+
+    // Verify with Google's tokeninfo endpoint (no extra package needed)
+    const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    const googleUser = await r.json();
+    if (googleUser.error || !googleUser.email) return fail(res, 'Invalid Google token', 401);
+
+    let user = await User.findOne({
+      $or: [{ googleId: googleUser.sub }, { email: googleUser.email.toLowerCase() }],
+    });
+
+    if (user) {
+      if (!user.googleId) {
+        user.googleId     = googleUser.sub;
+        user.isGoogleUser = true;
+        if (!user.avatar) user.avatar = googleUser.picture;
+        await user.save();
+      }
+    } else {
+      user = await User.create({
+        name:         googleUser.name,
+        email:        googleUser.email.toLowerCase(),
+        googleId:     googleUser.sub,
+        isGoogleUser: true,
+        avatar:       googleUser.picture || '',
+        password:     await bcrypt.hash(googleUser.sub + process.env.JWT_SECRET, 10),
+      });
+      sendEmail({ to: user.email, ...emailTemplates.welcome(user.name) }).catch(() => {});
+    }
+
+    const token = signToken(user._id);
+    return ok(res, { token, user });
+  } catch (err) {
+    return fail(res, err.message || 'Google auth failed', 500);
+  }
+};
+
 // GET /api/auth/me
 const getMe = async (req, res) => {
   try {
@@ -169,4 +218,4 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { register, login, googleInitiate, googleCallback, getMe };
+module.exports = { register, login, googleInitiate, googleCallback, googleMobile, getMe };

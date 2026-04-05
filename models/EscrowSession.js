@@ -6,6 +6,14 @@ const EscrowSessionSchema = new mongoose.Schema({
   property:    { type: mongoose.Schema.Types.ObjectId, ref: 'Property', required: true },
   amount:      { type: Number, required: true },
 
+  // Type determines fee structure on release
+  escrowType: {
+    type: String,
+    enum: ['inspection', 'bush_entry', 'hotel_booking', 'general'],
+    default: 'general',
+  },
+  referrerCredited: { type: Boolean, default: false },
+
   status: {
     type: String,
     enum: ['pending', 'confirmed', 'in_progress', 'payment_requested', 'released', 'refunded', 'disputed'],
