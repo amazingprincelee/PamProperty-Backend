@@ -1,5 +1,6 @@
-const Property   = require('../models/Property');
-const User       = require('../models/User');
+const Property     = require('../models/Property');
+const PropertyView = require('../models/PropertyView');
+const User         = require('../models/User');
 const { ok, fail } = require('../utils/response');
 const { sendNotification }   = require('../services/notification.service');
 const { emailTemplates }     = require('../services/email.service');
@@ -58,14 +59,37 @@ const getPropertyById = async (req, res) => {
   }
 };
 
-// POST /api/properties/:id/view — increment view count (called by mobile/web on detail open)
+// POST /api/properties/:id/view — increment view count once per user/IP per 24 hours
 const incrementView = async (req, res) => {
   try {
-    const property = await Property.findByIdAndUpdate(
-      req.params.id,
-      { $inc: { views: 1 } },
-      { new: true }
-    ).select('views');
+    const propertyId = req.params.id;
+
+    // Identify viewer — logged-in user takes priority, else fall back to IP
+    const userId = req.user?._id || null;
+    const ip     = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+                || req.socket?.remoteAddress
+                || 'unknown';
+
+    // Check if this viewer already counted in the last 24 hours
+    const filter = userId
+      ? { property: propertyId, user: userId }
+      : { property: propertyId, ip };
+
+    const alreadyViewed = await PropertyView.findOne(filter);
+
+    if (alreadyViewed) {
+      // Already counted — just return current views without incrementing
+      const property = await Property.findById(propertyId).select('views');
+      if (!property) return fail(res, 'Property not found.', 404);
+      return ok(res, { views: property.views });
+    }
+
+    // New view — increment and record it
+    const [property] = await Promise.all([
+      Property.findByIdAndUpdate(propertyId, { $inc: { views: 1 } }, { new: true }).select('views'),
+      PropertyView.create({ property: propertyId, user: userId, ip }),
+    ]);
+
     if (!property) return fail(res, 'Property not found.', 404);
     return ok(res, { views: property.views });
   } catch (err) {
