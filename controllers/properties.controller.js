@@ -52,11 +52,22 @@ const getPropertyById = async (req, res) => {
   try {
     const property = await Property.findById(req.params.id).populate('listedBy', 'name avatar phone kycVerified');
     if (!property) return fail(res, 'Property not found.', 404);
-
-    property.views += 1;
-    await property.save();
-
     return ok(res, { property });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// POST /api/properties/:id/view — increment view count (called by mobile/web on detail open)
+const incrementView = async (req, res) => {
+  try {
+    const property = await Property.findByIdAndUpdate(
+      req.params.id,
+      { $inc: { views: 1 } },
+      { new: true }
+    ).select('views');
+    if (!property) return fail(res, 'Property not found.', 404);
+    return ok(res, { views: property.views });
   } catch (err) {
     return fail(res, err.message);
   }
