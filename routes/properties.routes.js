@@ -1,9 +1,11 @@
 const router = require('express').Router();
-const { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply, toggleLike } = require('../controllers/properties.controller');
+const { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply, toggleLike, getLandInsights } = require('../controllers/properties.controller');
+const { getReviews, submitReview, checkEligibility } = require('../controllers/review.controller');
 const { protect, adminOnly } = require('../middleware/auth');
 const { handleUpload }       = require('../middleware/upload');
 
 router.get('/',                    getProperties);
+router.get('/land-insights',       getLandInsights);
 router.get('/my',                  protect, getMyProperties);
 router.get('/admin/pending',       protect, adminOnly, getPendingListings);
 router.get('/:id',                 getPropertyById);
@@ -14,6 +16,11 @@ router.put('/:id',                 protect, handleUpload('pamprop/properties'), 
 router.delete('/:id',              protect, deleteProperty);
 router.put('/:id/availability',    protect, updateAvailability);
 router.put('/:id/review',          protect, adminOnly, reviewListing);
+
+// Reviews
+router.get('/:id/reviews',             getReviews);
+router.post('/:id/reviews',            protect, submitReview);
+router.get('/:id/reviews/eligibility', protect, checkEligibility);
 
 // Comments
 router.get('/:id/comments',                                     getComments);

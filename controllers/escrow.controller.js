@@ -14,11 +14,17 @@ const createSession = async (req, res) => {
     const property = await Property.findById(propertyId).populate('listedBy');
     if (!property) return fail(res, 'Property not found.', 404);
 
+    // Determine escrow type from property type
+    const escrowType = property.type === 'land' ? 'bush_entry'
+                     : property.type === 'hotel' ? 'hotel_booking'
+                     : 'inspection';
+
     const session = await createEscrow({
       seekerId:   req.user._id,
       listerId:   property.listedBy._id,
       propertyId,
       amount,
+      escrowType,
       seekerUser: req.user,
       property,
     });
@@ -219,4 +225,54 @@ const dispute = async (req, res) => {
   }
 };
 
-module.exports = { createSession, getSession, getMySessions, confirm, requestPayment, release, refund, dispute };
+// PUT /api/escrow/:id/log-visit  — lister marks a physical inspection visit done
+const MAX_VISITS = 3;
+const logVisit = async (req, res) => {
+  try {
+    const { note = '' } = req.body;
+    const session = await EscrowSession.findById(req.params.id).populate('seeker property');
+    if (!session) return fail(res, 'Session not found.', 404);
+    if (session.lister.toString() !== req.user._id.toString()) return fail(res, 'Only the lister can log a visit.', 403);
+    if (['released', 'refunded', 'resolved'].includes(session.status)) return fail(res, 'Session is already closed.', 400);
+
+    const newVisitCount = (session.visitCount || 0) + 1;
+    const updates = {
+      visitCount:  newVisitCount,
+      inspectedAt: new Date(),
+      $push: { visitLog: { visitedAt: new Date(), note: note.trim() } },
+    };
+
+    // Move to in_progress on first visit if still confirmed/pending
+    if (['pending', 'confirmed'].includes(session.status)) {
+      updates.status = 'in_progress';
+    }
+
+    // After 3 visits, auto-request payment so seeker must release
+    if (newVisitCount >= MAX_VISITS) {
+      updates.status = 'payment_requested';
+    }
+
+    const updated = await EscrowSession.findByIdAndUpdate(req.params.id, updates, { new: true }).populate('seeker property');
+
+    // Notify seeker
+    const visitMsg = newVisitCount >= MAX_VISITS
+      ? `${req.user.name} has completed 3 inspection visits for "${updated.property?.title}". Please release the inspection fee.`
+      : `${req.user.name} has logged visit ${newVisitCount} of ${MAX_VISITS} for "${updated.property?.title}".`;
+
+    await sendNotification({
+      recipientId:    session.seeker._id,
+      recipientEmail: session.seeker?.email,
+      title:          newVisitCount >= MAX_VISITS ? '3 Inspections Done — Release Fee' : `Inspection Visit ${newVisitCount} Logged`,
+      message:        visitMsg,
+      type:           'escrow',
+      relatedEscrow:  session._id,
+      relatedProperty: session.property?._id,
+    });
+
+    return ok(res, { session: updated }, `Visit ${newVisitCount} logged.${newVisitCount >= MAX_VISITS ? ' Seeker notified to release fee.' : ''}`);
+  } catch (err) {
+    return fail(res, err.message, 400);
+  }
+};
+
+module.exports = { createSession, getSession, getMySessions, confirm, requestPayment, release, refund, dispute, logVisit };

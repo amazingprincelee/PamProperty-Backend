@@ -25,6 +25,10 @@ const EscrowSessionSchema = new mongoose.Schema({
   inspectionTime: { type: String, default: null },
   inspectionNote: { type: String, default: null },
 
+  // Visit tracking (physical inspections by seeker)
+  visitCount:     { type: Number, default: 0 },
+  visitLog:       [{ visitedAt: { type: Date }, note: { type: String, default: '' } }],
+
   // Dispute
   disputeReason:  { type: String, default: null },
   disputedAt:     { type: Date,   default: null },

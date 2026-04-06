@@ -163,7 +163,17 @@ const respondToProposal = async (req, res) => {
 // POST /api/chat/upload
 const uploadChatFile = async (req, res) => {
   try {
-    if (!req.uploadedUrls?.length) return fail(res, 'No file uploaded.', 400);
+    // Enforce size limits: images ≤ 5 MB, videos ≤ 30 MB
+    const file = req.files?.media;
+    if (!file) return fail(res, 'No file uploaded.', 400);
+    const f = Array.isArray(file) ? file[0] : file;
+    const isVideo = (f.mimetype || '').startsWith('video/');
+    const limitMB = isVideo ? 30 : 5;
+    const sizeMB  = f.size / (1024 * 1024);
+    if (sizeMB > limitMB) {
+      return fail(res, `File too large. Maximum ${limitMB} MB allowed for ${isVideo ? 'videos' : 'images'} in chat.`, 400);
+    }
+    if (!req.uploadedUrls?.length) return fail(res, 'Upload failed.', 400);
     return ok(res, { url: req.uploadedUrls[0] });
   } catch (err) {
     return fail(res, err.message);

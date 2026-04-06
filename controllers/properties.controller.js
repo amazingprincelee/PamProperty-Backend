@@ -102,13 +102,20 @@ const createProperty = async (req, res) => {
   try {
     const data = { ...req.body, listedBy: req.user._id, status: 'pending' };
 
-    // Direct upload — same approach as avatar. Field name: "images"
+    // Direct upload — field name: "images"
     if (req.files?.images) {
       const files = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
       const results = await Promise.all(
         files.map(f => uploadToCloudinary(f.data, 'pamprop/properties'))
       );
       data.images = results.map(r => r.secure_url);
+    }
+
+    // Video upload — field name: "video" (single file, max 1)
+    if (req.files?.video) {
+      const file = Array.isArray(req.files.video) ? req.files.video[0] : req.files.video;
+      const result = await uploadToCloudinary(file.data, 'pamprop/property-videos');
+      data.video = result.secure_url;
     }
 
     const property = await Property.create(data);
@@ -490,4 +497,51 @@ const toggleLike = async (req, res) => {
   }
 };
 
-module.exports = { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply, toggleLike };
+// GET /api/properties/land-insights?lga=X&state=Y&excludeId=Z
+const getLandInsights = async (req, res) => {
+  try {
+    const { lga, state, excludeId } = req.query;
+    if (!state) return fail(res, 'state is required.', 400);
+
+    const buildQuery = (useLga) => {
+      const q = { type: 'land', status: 'approved', price: { $gt: 0 } };
+      if (useLga && lga) q.lga = lga;
+      else q.state = state;
+      if (excludeId) q._id = { $ne: excludeId };
+      return q;
+    };
+
+    let listings = await Property.find(buildQuery(true)).select('price pricePerSqm size').lean();
+
+    // Fall back to whole state if fewer than 3 comparables in the LGA
+    const usedScope = listings.length >= 3 ? 'lga' : 'state';
+    if (usedScope === 'state') {
+      listings = await Property.find(buildQuery(false)).select('price pricePerSqm size').lean();
+    }
+
+    if (!listings.length) return ok(res, { insights: null });
+
+    const prices = listings.map(l => Number(l.price)).filter(p => p > 0).sort((a, b) => a - b);
+    const count  = prices.length;
+    const sum    = prices.reduce((a, b) => a + b, 0);
+    const avg    = Math.round(sum / count);
+    const median = count % 2 === 0
+      ? Math.round((prices[count / 2 - 1] + prices[count / 2]) / 2)
+      : prices[Math.floor(count / 2)];
+    const min = prices[0];
+    const max = prices[count - 1];
+
+    const psqmArr = listings.map(l => Number(l.pricePerSqm)).filter(v => v > 0);
+    const pricePerSqmAvg = psqmArr.length
+      ? Math.round(psqmArr.reduce((a, b) => a + b, 0) / psqmArr.length)
+      : null;
+
+    return ok(res, {
+      insights: { avg, median, min, max, pricePerSqmAvg, count, scope: usedScope, lga, state },
+    });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply, toggleLike, getLandInsights };

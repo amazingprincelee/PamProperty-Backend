@@ -60,7 +60,7 @@ const toggleFollow = async (req, res) => {
     if (!target) return fail(res, 'User not found.', 404);
     if (target._id.toString() === req.user._id.toString()) return fail(res, 'Cannot follow yourself.', 400);
 
-    const isFollowing = req.user.following.includes(target._id);
+    const isFollowing = req.user.following.some(id => id.toString() === target._id.toString());
 
     if (isFollowing) {
       await User.findByIdAndUpdate(req.user._id, { $pull: { following: target._id } });
@@ -115,31 +115,35 @@ const toggleSaved = async (req, res) => {
   }
 };
 
-// POST /api/users/kyc — submit NIN + upload proof of address docs
+// POST /api/users/kyc — submit NIN + proof of identity + proof of address
 const submitKyc = async (req, res) => {
   try {
     const { nin, ninName, ninDob } = req.body;
 
-    // Upload proof-of-address documents if provided
+    // Upload identity documents (field name: "docs")
+    let identityUrls = [];
     if (req.files?.docs) {
       const files = Array.isArray(req.files.docs) ? req.files.docs : [req.files.docs];
-      const results = await Promise.all(
-        files.map(f => uploadToCloudinary(f.data, 'pamprop/kyc'))
-      );
-      req.uploadedUrls = results.map(r => r.secure_url);
+      const results = await Promise.all(files.map(f => uploadToCloudinary(f.data, 'pamprop/kyc/identity')));
+      identityUrls = results.map(r => r.secure_url);
     }
 
-    // Must have NIN or documents (or both)
-    if (!nin && !req.uploadedUrls?.length) {
-      return fail(res, 'Please provide your NIN or upload a document.', 400);
+    // Upload proof-of-address documents (field name: "addressDocs")
+    let addressUrls = [];
+    if (req.files?.addressDocs) {
+      const files = Array.isArray(req.files.addressDocs) ? req.files.addressDocs : [req.files.addressDocs];
+      const results = await Promise.all(files.map(f => uploadToCloudinary(f.data, 'pamprop/kyc/address')));
+      addressUrls = results.map(r => r.secure_url);
     }
 
-    const update = {
-      kycStatus:      'pending',
-      kycSubmittedAt: new Date(),
-    };
-    if (nin)                      { update.nin = nin; update.ninName = ninName || ''; update.ninDob = ninDob || ''; }
-    if (req.uploadedUrls?.length) { update.kycDocuments = req.uploadedUrls; }
+    if (!nin && !identityUrls.length && !addressUrls.length) {
+      return fail(res, 'Please provide your NIN or upload at least one document.', 400);
+    }
+
+    const update = { kycStatus: 'pending', kycSubmittedAt: new Date() };
+    if (nin)                 { update.nin = nin; update.ninName = ninName || ''; update.ninDob = ninDob || ''; }
+    if (identityUrls.length) { update.kycDocuments = identityUrls; }
+    if (addressUrls.length)  { update.kycAddressDocuments = addressUrls; }
 
     const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select('-password');
     return ok(res, { user }, 'KYC submitted for review. We will verify within 24–48 hours.');
@@ -151,7 +155,7 @@ const submitKyc = async (req, res) => {
 // GET /api/users/kyc — get current user's KYC status
 const getKycStatus = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('kycVerified kycStatus kycDocuments kycRejectionReason kycSubmittedAt nin ninName ninDob ninVerified');
+    const user = await User.findById(req.user._id).select('kycVerified kycStatus kycDocuments kycAddressDocuments kycRejectionReason kycSubmittedAt nin ninName ninDob ninVerified');
     return ok(res, { kyc: user });
   } catch (err) {
     return fail(res, err.message);

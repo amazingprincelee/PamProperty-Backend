@@ -29,7 +29,7 @@ const computeFees = async (escrowType, amount) => {
 /* ─────────────────────────────────────────────
    CREATE ESCROW SESSION
 ───────────────────────────────────────────── */
-const createEscrow = async ({ seekerId, listerId, propertyId, amount, seekerUser, property }) => {
+const createEscrow = async ({ seekerId, listerId, propertyId, amount, escrowType = 'general', seekerUser, property }) => {
   // Debit seeker wallet
   await debitWallet({
     userId:          seekerId,
@@ -47,6 +47,7 @@ const createEscrow = async ({ seekerId, listerId, propertyId, amount, seekerUser
     lister:          listerId,
     property:        propertyId,
     amount,
+    escrowType,
     status:          'pending',
     autoRefundDate,
   });
