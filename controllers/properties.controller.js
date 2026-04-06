@@ -466,4 +466,28 @@ const deleteComment = async (req, res) => {
   }
 };
 
-module.exports = { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply };
+// POST /api/properties/:id/like  (toggle — requires auth)
+const toggleLike = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return fail(res, 'Property not found.', 404);
+
+    const userId  = req.user._id;
+    const already = property.likedBy.some(id => id.toString() === userId.toString());
+
+    if (already) {
+      property.likedBy = property.likedBy.filter(id => id.toString() !== userId.toString());
+      property.likes   = Math.max(0, (property.likes || 0) - 1);
+    } else {
+      property.likedBy.push(userId);
+      property.likes = (property.likes || 0) + 1;
+    }
+
+    await property.save();
+    return ok(res, { likes: property.likes, liked: !already });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply, toggleLike };

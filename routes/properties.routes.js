@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply } = require('../controllers/properties.controller');
+const { getProperties, getPropertyById, incrementView, createProperty, updateProperty, deleteProperty, updateAvailability, getMyProperties, reviewListing, getPendingListings, getComments, addComment, editComment, deleteComment, addReply, editReply, deleteReply, toggleLike } = require('../controllers/properties.controller');
 const { protect, adminOnly } = require('../middleware/auth');
 const { handleUpload }       = require('../middleware/upload');
 
@@ -8,6 +8,7 @@ router.get('/my',                  protect, getMyProperties);
 router.get('/admin/pending',       protect, adminOnly, getPendingListings);
 router.get('/:id',                 getPropertyById);
 router.post('/:id/view',           incrementView);
+router.post('/:id/like',           protect, toggleLike);
 router.post('/',                   protect, handleUpload('pamprop/properties'), createProperty);
 router.put('/:id',                 protect, handleUpload('pamprop/properties'), updateProperty);
 router.delete('/:id',              protect, deleteProperty);

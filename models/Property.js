@@ -22,6 +22,7 @@ const PropertySchema = new mongoose.Schema({
 
   // Stats
   likes:        { type: Number, default: 0 },
+  likedBy:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   views:        { type: Number, default: 0 },
 
   // ─── LAND FIELDS ───
