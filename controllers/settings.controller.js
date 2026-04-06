@@ -45,4 +45,18 @@ const updateSettings = async (req, res) => {
   }
 };
 
-module.exports = { getSettings, updateSettings, seedDefaults };
+// GET /api/admin/settings/fees  (public — fee amounts only, no auth required)
+const getPublicFees = async (req, res) => {
+  try {
+    await seedDefaults();
+    const feeKeys = ['inspection_fee', 'inspection_system_cut', 'bush_entry_fee', 'bush_entry_system_cut', 'hotel_commission_pct'];
+    const docs = await PlatformSettings.find({ key: { $in: feeKeys } });
+    const fees = {};
+    docs.forEach(d => { fees[d.key] = d.value; });
+    return ok(res, { fees });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getSettings, updateSettings, seedDefaults, getPublicFees };
