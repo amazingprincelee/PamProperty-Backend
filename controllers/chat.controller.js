@@ -10,8 +10,8 @@ const { ok, fail } = require('../utils/response');
 const getConversations = async (req, res) => {
   try {
     const convs = await Conversation.find({ participants: req.user._id })
-      .populate('participants', 'name avatar')
-      .populate('property', 'title images type')
+      .populate('participants', 'name avatar phone')
+      .populate({ path: 'property', select: 'title images type listedBy', populate: { path: 'listedBy', select: '_id name' } })
       .sort({ lastTime: -1 });
     return ok(res, { conversations: convs });
   } catch (err) {
