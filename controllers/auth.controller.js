@@ -29,7 +29,7 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USER_URL  = 'https://www.googleapis.com/oauth2/v3/userinfo';
 
 function buildGoogleRedirectUri() {
-  const base = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const base = (process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, '');
   return `${base}/api/auth/google/callback`;
 }
 
