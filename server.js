@@ -13,6 +13,7 @@ const { startCronJobs } = require('./jobs/escrow.cron');
 const { apiLimiter }    = require('./middleware/rateLimiter');
 
 const app    = express();
+app.set('trust proxy', 1); // Required for rate-limit behind DigitalOcean/reverse proxy
 const server = http.createServer(app);
 
 // ─── Connect DB ───

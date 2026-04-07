@@ -125,7 +125,11 @@ const googleCallback = async (req, res) => {
       }),
     });
     const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) throw new Error('Token exchange failed');
+    if (!tokenData.access_token) {
+      console.error('[Google OAuth] Token exchange error from Google:', JSON.stringify(tokenData));
+      console.error('[Google OAuth] redirect_uri used:', buildGoogleRedirectUri());
+      throw new Error('Token exchange failed');
+    }
 
     // Fetch user info from Google
     const userRes    = await fetch(GOOGLE_USER_URL, {
