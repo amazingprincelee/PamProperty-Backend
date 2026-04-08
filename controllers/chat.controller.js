@@ -12,7 +12,31 @@ const getConversations = async (req, res) => {
     const convs = await Conversation.find({ participants: req.user._id })
       .populate('participants', 'name avatar phone')
       .populate({ path: 'property', select: 'title images type listedBy', populate: { path: 'listedBy', select: '_id name' } })
-      .sort({ lastTime: -1 });
+      .sort({ lastTime: -1 })
+      .lean();
+
+    // For conversations missing visitStage (old records or missed updates),
+    // derive the stage from their messages so Requests page always shows them correctly.
+    const nullIds = convs.filter(c => !c.visitStage).map(c => c._id);
+    if (nullIds.length) {
+      const msgs = await Message.find(
+        { conversation: { $in: nullIds }, type: { $in: ['visit_request', 'date_proposal'] } },
+        'conversation type proposalStatus'
+      ).lean();
+      const stageMap = {};
+      msgs.forEach(m => {
+        const cid = m.conversation.toString();
+        if (m.type === 'visit_request' && !stageMap[cid]) stageMap[cid] = 'requested';
+        if (m.type === 'date_proposal') {
+          if (m.proposalStatus === 'accepted') stageMap[cid] = 'agreed';
+          else if (m.proposalStatus === 'pending' && stageMap[cid] !== 'agreed') stageMap[cid] = 'proposed';
+        }
+      });
+      convs.forEach(c => {
+        if (!c.visitStage && stageMap[c._id.toString()]) c.visitStage = stageMap[c._id.toString()];
+      });
+    }
+
     return ok(res, { conversations: convs });
   } catch (err) {
     return fail(res, err.message);
@@ -96,9 +120,11 @@ const sendMessage = async (req, res) => {
       readBy:         [req.user._id],
     });
 
-    // Update conversation last message
+    // Update conversation last message + visitStage
     conv.lastMessage = text || '📅 Inspection date proposed';
     conv.lastTime    = new Date();
+    if (type === 'visit_request')  conv.visitStage = 'requested';
+    if (type === 'date_proposal')  conv.visitStage = 'proposed';
     conv.participants.forEach(p => {
       if (p._id.toString() !== req.user._id.toString()) {
         const current = conv.unreadCount.get(p._id.toString()) || 0;
@@ -148,6 +174,13 @@ const respondToProposal = async (req, res) => {
       { proposalStatus: status },
       { new: true }
     ).populate('sender', 'name');
+
+    if (status === 'accepted') {
+      await Conversation.findByIdAndUpdate(req.params.convId, { visitStage: 'agreed' });
+    }
+    if (status === 'declined') {
+      await Conversation.findByIdAndUpdate(req.params.convId, { visitStage: 'requested' });
+    }
 
     try {
       const io = getIO();

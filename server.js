@@ -55,6 +55,65 @@ app.use('/api/admin/settings', require('./routes/settings.routes'));
 // ─── Health Check ───
 app.get('/api/health', (req, res) => res.json({ status: 'PamProperty API is running.' }));
 
+// ─── Property Share Page (OG tags for WhatsApp / social media) ───
+app.get('/share/property/:id', async (req, res) => {
+  try {
+    const Property = require('./models/Property');
+    const prop = await Property.findById(req.params.id).lean();
+    const frontendBase = process.env.CLIENT_URL || 'https://pamproperty.com';
+    const apiBase      = (process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`).replace(/\/$/, '');
+
+    if (!prop) {
+      return res.redirect(302, frontendBase);
+    }
+
+    const title   = prop.title || prop.name || 'Property on PamProperty';
+    const type    = prop.type  || 'rental';
+    const price   = prop.price ? `₦${Number(prop.price).toLocaleString()}` : '';
+    const loc     = [prop.lga, prop.state].filter(Boolean).join(', ') || prop.location || '';
+    const beds    = prop.bedrooms ? `${prop.bedrooms} bed` : '';
+    const desc    = [price, beds, loc, prop.description?.slice(0, 120)].filter(Boolean).join(' · ');
+    const image   = prop.images?.[0] || `${apiBase}/og-default.jpg`;
+    const pageUrl = `${frontendBase}/property/${type}/${prop._id}`;
+    const shareUrl = `${apiBase}/share/property/${prop._id}`;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>${title} — PamProperty</title>
+  <meta name="description" content="${desc}"/>
+
+  <!-- Open Graph (WhatsApp, Facebook, LinkedIn) -->
+  <meta property="og:type"        content="website"/>
+  <meta property="og:site_name"   content="PamProperty"/>
+  <meta property="og:title"       content="${title}"/>
+  <meta property="og:description" content="${desc}"/>
+  <meta property="og:image"       content="${image}"/>
+  <meta property="og:image:width" content="1200"/>
+  <meta property="og:image:height" content="630"/>
+  <meta property="og:url"         content="${shareUrl}"/>
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card"        content="summary_large_image"/>
+  <meta name="twitter:title"       content="${title}"/>
+  <meta name="twitter:description" content="${desc}"/>
+  <meta name="twitter:image"       content="${image}"/>
+
+  <!-- Redirect real users to the SPA -->
+  <meta http-equiv="refresh" content="0; url=${pageUrl}"/>
+</head>
+<body>
+  <p>Redirecting to <a href="${pageUrl}">${title}</a>…</p>
+  <script>window.location.replace("${pageUrl}");</script>
+</body>
+</html>`);
+  } catch (err) {
+    res.redirect(302, process.env.CLIENT_URL || 'https://pamproperty.com');
+  }
+});
+
 // ─── Sitemap ───
 app.get('/sitemap.xml', async (req, res) => {
   try {

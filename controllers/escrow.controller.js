@@ -14,6 +14,17 @@ const createSession = async (req, res) => {
     const property = await Property.findById(propertyId).populate('listedBy');
     if (!property) return fail(res, 'Property not found.', 404);
 
+    // Enforce flow: must have an agreed date before paying
+    const Conversation = require('../models/Conversation');
+    const agreedConv = await Conversation.findOne({
+      property:     propertyId,
+      participants: req.user._id,
+      visitStage:   'agreed',
+    });
+    if (!agreedConv) {
+      return fail(res, 'Please complete the inspection request flow first. Go to chat, request a visit, and agree on a date with the lister before paying.', 400);
+    }
+
     // Determine escrow type from property type
     const escrowType = property.type === 'land' ? 'bush_entry'
                      : property.type === 'hotel' ? 'hotel_booking'
