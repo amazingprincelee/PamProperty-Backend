@@ -77,18 +77,14 @@ app.get('/share/property/:id', async (req, res) => {
       : [price, beds, loc].filter(Boolean).join(' · ');
     const image   = prop.images?.[0] || `${apiBase}/og-default.jpg`;
     const pageUrl = `${frontendBase}/property/${type}/${prop._id}`;
+    const playStore = 'https://play.google.com/store/apps/details?id=com.pampproperty.app';
+    const appStore  = 'https://apps.apple.com/app/pamproperty/id0000000000';
 
-    // User-Agent sniffing for smart redirect:
-    // Android → Play Store (or deep link if app is configured)
-    // iOS     → App Store
-    // Desktop → frontend web
-    const ua = req.headers['user-agent'] || '';
-    const isBot = /whatsapp|facebookexternalhit|twitterbot|linkedinbot|slackbot|googlebot|bingbot|crawler|spider/i.test(ua);
-
-    if (isBot) {
-      // Serve OG tags only — no redirect, bots read the page
-      res.setHeader('Content-Type', 'text/html');
-      return res.send(`<!DOCTYPE html>
+    // One unified response for everyone.
+    // Bots (WhatsApp, Facebook etc.) don't execute JS → they read OG tags from <head>.
+    // Real users execute the JS → smart redirect to app store or web.
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
@@ -107,34 +103,12 @@ app.get('/share/property/:id', async (req, res) => {
   <meta name="twitter:description" content="${desc}"/>
   <meta name="twitter:image"       content="${image}"/>
 </head>
-<body><p>${title}</p></body>
-</html>`);
-    }
-
-    // Real users — smart redirect based on device
-    const isAndroid = /android/i.test(ua);
-    const isIOS     = /iphone|ipad|ipod/i.test(ua);
-    const playStore = 'https://play.google.com/store/apps/details?id=com.pampproperty.app';
-    const appStore  = 'https://apps.apple.com/app/pamproperty/id0000000000';
-
-    res.setHeader('Content-Type', 'text/html');
-    res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <title>${title} — PamProperty</title>
-  <meta property="og:type"        content="website"/>
-  <meta property="og:site_name"   content="PamProperty"/>
-  <meta property="og:title"       content="${title}"/>
-  <meta property="og:description" content="${desc}"/>
-  <meta property="og:image"       content="${image}"/>
-  <meta property="og:url"         content="${pageUrl}"/>
-</head>
 <body>
   <p>Opening PamProperty…</p>
   <script>
-    var isAndroid = ${isAndroid};
-    var isIOS     = ${isIOS};
+    var ua = navigator.userAgent;
+    var isAndroid = /android/i.test(ua);
+    var isIOS     = /iphone|ipad|ipod/i.test(ua);
     if (isAndroid) {
       window.location.href = '${playStore}';
     } else if (isIOS) {
