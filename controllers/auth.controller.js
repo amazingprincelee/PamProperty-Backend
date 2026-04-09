@@ -105,9 +105,12 @@ const googleInitiate = (req, res) => {
 
 // GET /api/auth/google/callback — Google redirects here with ?code=
 const googleCallback = async (req, res) => {
+  console.log("I got hit megn");
+  
   const clientUrl = process.env.NODE_ENV === 'production'
     ? process.env.CLIENT_URL
     : 'http://localhost:5173';
+    
   try {
     const { code } = req.query;
     if (!code) throw new Error('No code from Google');
