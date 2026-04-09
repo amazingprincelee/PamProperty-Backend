@@ -71,21 +71,29 @@ app.get('/share/property/:id', async (req, res) => {
     const type    = prop.type  || 'rental';
     const price   = prop.price ? `₦${Number(prop.price).toLocaleString()}` : '';
     const loc     = [prop.lga, prop.state].filter(Boolean).join(', ') || prop.location || '';
-    const beds    = prop.bedrooms ? `${prop.bedrooms} bed` : '';
-    const desc    = [price, beds, loc, prop.description?.slice(0, 120)].filter(Boolean).join(' · ');
+    const beds    = prop.bedrooms ? `${prop.bedrooms} bed${prop.bedrooms > 1 ? 's' : ''}` : '';
+    const desc    = prop.description
+      ? prop.description.slice(0, 160)
+      : [price, beds, loc].filter(Boolean).join(' · ');
     const image   = prop.images?.[0] || `${apiBase}/og-default.jpg`;
     const pageUrl = `${frontendBase}/property/${type}/${prop._id}`;
-    const shareUrl = `${apiBase}/share/property/${prop._id}`;
 
-    res.setHeader('Content-Type', 'text/html');
-    res.send(`<!DOCTYPE html>
+    // User-Agent sniffing for smart redirect:
+    // Android → Play Store (or deep link if app is configured)
+    // iOS     → App Store
+    // Desktop → frontend web
+    const ua = req.headers['user-agent'] || '';
+    const isBot = /whatsapp|facebookexternalhit|twitterbot|linkedinbot|slackbot|googlebot|bingbot|crawler|spider/i.test(ua);
+
+    if (isBot) {
+      // Serve OG tags only — no redirect, bots read the page
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <title>${title} — PamProperty</title>
   <meta name="description" content="${desc}"/>
-
-  <!-- Open Graph (WhatsApp, Facebook, LinkedIn) -->
   <meta property="og:type"        content="website"/>
   <meta property="og:site_name"   content="PamProperty"/>
   <meta property="og:title"       content="${title}"/>
@@ -93,20 +101,49 @@ app.get('/share/property/:id', async (req, res) => {
   <meta property="og:image"       content="${image}"/>
   <meta property="og:image:width" content="1200"/>
   <meta property="og:image:height" content="630"/>
-  <meta property="og:url"         content="${shareUrl}"/>
-
-  <!-- Twitter Card -->
+  <meta property="og:url"         content="${pageUrl}"/>
   <meta name="twitter:card"        content="summary_large_image"/>
   <meta name="twitter:title"       content="${title}"/>
   <meta name="twitter:description" content="${desc}"/>
   <meta name="twitter:image"       content="${image}"/>
+</head>
+<body><p>${title}</p></body>
+</html>`);
+    }
 
-  <!-- Redirect real users to the SPA -->
-  <meta http-equiv="refresh" content="0; url=${pageUrl}"/>
+    // Real users — smart redirect based on device
+    const isAndroid = /android/i.test(ua);
+    const isIOS     = /iphone|ipad|ipod/i.test(ua);
+    const playStore = 'https://play.google.com/store/apps/details?id=com.pampproperty.app';
+    const appStore  = 'https://apps.apple.com/app/pamproperty/id0000000000';
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>${title} — PamProperty</title>
+  <meta property="og:type"        content="website"/>
+  <meta property="og:site_name"   content="PamProperty"/>
+  <meta property="og:title"       content="${title}"/>
+  <meta property="og:description" content="${desc}"/>
+  <meta property="og:image"       content="${image}"/>
+  <meta property="og:url"         content="${pageUrl}"/>
 </head>
 <body>
-  <p>Redirecting to <a href="${pageUrl}">${title}</a>…</p>
-  <script>window.location.replace("${pageUrl}");</script>
+  <p>Opening PamProperty…</p>
+  <script>
+    var isAndroid = ${isAndroid};
+    var isIOS     = ${isIOS};
+    if (isAndroid) {
+      window.location.href = '${playStore}';
+    } else if (isIOS) {
+      window.location.href = '${appStore}';
+    } else {
+      window.location.replace('${pageUrl}');
+    }
+  </script>
+  <noscript><meta http-equiv="refresh" content="0; url=${pageUrl}"/></noscript>
 </body>
 </html>`);
   } catch (err) {
