@@ -6,15 +6,16 @@ const { ok, fail } = require('../utils/response');
 
 // Sends a tiny HTML page that postMessages the payload to the opener then closes.
 // Falls back to a query-string redirect if the window has no opener (direct nav).
+// Uses '*' as targetOrigin so www vs non-www mismatches don't silently drop the message.
 function popupRelay(clientUrl, payload) {
   const json = JSON.stringify(payload);
   const redirect = payload.token
-    ? `${clientUrl}?token=${payload.token}`
-    : `${clientUrl}?error=${payload.error}`;
+    ? `${clientUrl}?googleToken=${payload.token}`
+    : `${clientUrl}?googleError=${payload.error}`;
   return `<!DOCTYPE html><html><body><script>
     try {
       if (window.opener) {
-        window.opener.postMessage(${json}, '${clientUrl}');
+        window.opener.postMessage(${json}, '*');
         window.close();
       } else {
         window.location.href = '${redirect}';
@@ -22,6 +23,10 @@ function popupRelay(clientUrl, payload) {
     } catch(e) { window.location.href = '${redirect}'; }
   <\/script></body></html>`;
 }
+
+// In-memory deduplication: prevents two concurrent requests with the same auth code
+// (Node.js is single-threaded so the Set.has check + Set.add is atomic before any await)
+const _usedCodes = new Set();
 
 // ─── Google OAuth helpers ──────────────────────────────────────────────────────
 const GOOGLE_AUTH_URL  = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -105,17 +110,31 @@ const googleInitiate = (req, res) => {
 
 // GET /api/auth/google/callback — Google redirects here with ?code=
 const googleCallback = async (req, res) => {
-  console.log("I got hit megn");
-  
-  const clientUrl = process.env.NODE_ENV === 'production'
+  const clientUrl = (process.env.NODE_ENV === 'production'
     ? process.env.CLIENT_URL
-    : 'http://localhost:5173';
-    
+    : 'http://localhost:5173'
+  ).replace(/\/$/, '');
+
+  console.log('[Google OAuth] Step 1 — callback reached');
+  console.log('[Google OAuth] NODE_ENV:', process.env.NODE_ENV);
+  console.log('[Google OAuth] clientUrl:', clientUrl);
+  console.log('[Google OAuth] redirect_uri will be:', buildGoogleRedirectUri());
+  console.log('[Google OAuth] code present:', !!req.query.code);
+
   try {
     const { code } = req.query;
     if (!code) throw new Error('No code from Google');
 
+    // Deduplicate: if this code is already being processed, silently close the popup
+    if (_usedCodes.has(code)) {
+      console.log('[Google OAuth] Duplicate code detected — closing silently');
+      return res.send('<script>window.close();</script>');
+    }
+    _usedCodes.add(code);
+    setTimeout(() => _usedCodes.delete(code), 60_000); // auto-cleanup after 60s
+
     // Exchange code for tokens
+    console.log('[Google OAuth] Step 2 — exchanging code for token...');
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -128,6 +147,7 @@ const googleCallback = async (req, res) => {
       }),
     });
     const tokenData = await tokenRes.json();
+    console.log('[Google OAuth] Step 2 result — access_token present:', !!tokenData.access_token, '| error:', tokenData.error || 'none');
     if (!tokenData.access_token) {
       console.error('[Google OAuth] Token exchange error from Google:', JSON.stringify(tokenData));
       console.error('[Google OAuth] redirect_uri used:', buildGoogleRedirectUri());
@@ -135,16 +155,20 @@ const googleCallback = async (req, res) => {
     }
 
     // Fetch user info from Google
+    console.log('[Google OAuth] Step 3 — fetching user info from Google...');
     const userRes    = await fetch(GOOGLE_USER_URL, {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const googleUser = await userRes.json();
+    console.log('[Google OAuth] Step 3 result — email:', googleUser.email || 'MISSING');
     if (!googleUser.email) throw new Error('Could not get email from Google');
 
     // Find existing user by googleId or email
+    console.log('[Google OAuth] Step 4 — looking up user in DB...');
     let user = await User.findOne({
       $or: [{ googleId: googleUser.sub }, { email: googleUser.email.toLowerCase() }],
     });
+    console.log('[Google OAuth] Step 4 result — user found:', !!user);
 
     if (user) {
       if (!user.googleId) {
@@ -154,6 +178,7 @@ const googleCallback = async (req, res) => {
         await user.save();
       }
     } else {
+      console.log('[Google OAuth] Step 4b — creating new user...');
       user = await User.create({
         name:         googleUser.name,
         email:        googleUser.email.toLowerCase(),
@@ -167,9 +192,12 @@ const googleCallback = async (req, res) => {
     }
 
     const token = signToken(user._id);
+    console.log('[Google OAuth] Step 5 — sending popupRelay to clientUrl:', clientUrl);
     res.send(popupRelay(clientUrl, { type: 'GOOGLE_AUTH_TOKEN', token }));
+    console.log('[Google OAuth] Step 5 — done, response sent');
   } catch (err) {
     console.error('[Google OAuth] Callback error:', err.message);
+    console.error('[Google OAuth] Stack:', err.stack);
     res.send(popupRelay(clientUrl, { type: 'GOOGLE_AUTH_ERROR', error: 'google_auth_failed' }));
   }
 };

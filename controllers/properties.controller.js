@@ -99,28 +99,36 @@ const incrementView = async (req, res) => {
 
 // POST /api/properties
 const createProperty = async (req, res) => {
+  console.log('[createProperty] hit — type:', req.body?.type, '| files:', Object.keys(req.files || {}));
   try {
     const data = { ...req.body, listedBy: req.user._id, status: 'pending' };
 
     // Direct upload — field name: "images"
     if (req.files?.images) {
       const files = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
+      console.log('[createProperty] uploading', files.length, 'image(s) to Cloudinary...');
       const results = await Promise.all(
         files.map(f => uploadToCloudinary(f.data, 'pamprop/properties'))
       );
       data.images = results.map(r => r.secure_url);
+      console.log('[createProperty] images uploaded OK');
     }
 
     // Video upload — field name: "video" (single file, max 1)
     if (req.files?.video) {
       const file = Array.isArray(req.files.video) ? req.files.video[0] : req.files.video;
+      console.log('[createProperty] uploading video to Cloudinary...');
       const result = await uploadToCloudinary(file.data, 'pamprop/property-videos');
       data.video = result.secure_url;
+      console.log('[createProperty] video uploaded OK');
     }
 
+    console.log('[createProperty] saving property to DB...');
     const property = await Property.create(data);
+    console.log('[createProperty] saved OK — id:', property._id);
     return ok(res, { property }, 'Property submitted for review.', 201);
   } catch (err) {
+    console.error('[createProperty] error:', err.message);
     return fail(res, err.message);
   }
 };
