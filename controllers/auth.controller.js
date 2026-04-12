@@ -4,24 +4,14 @@ const User     = require('../models/User');
 const { sendEmail, emailTemplates } = require('../services/email.service');
 const { ok, fail } = require('../utils/response');
 
-// Sends a tiny HTML page that postMessages the payload to the opener then closes.
-// Falls back to a query-string redirect if the window has no opener (direct nav).
-// Uses '*' as targetOrigin so www vs non-www mismatches don't silently drop the message.
-function popupRelay(clientUrl, payload) {
-  const json = JSON.stringify(payload);
-  const redirect = payload.token
-    ? `${clientUrl}?googleToken=${payload.token}`
-    : `${clientUrl}?googleError=${payload.error}`;
-  return `<!DOCTYPE html><html><body><script>
-    try {
-      if (window.opener) {
-        window.opener.postMessage(${json}, '*');
-        window.close();
-      } else {
-        window.location.href = '${redirect}';
-      }
-    } catch(e) { window.location.href = '${redirect}'; }
-  <\/script></body></html>`;
+// Redirects the popup to a same-origin frontend relay page that postMessages the token
+// and calls window.close(). Same-origin close is always reliable; cross-origin is not.
+function popupRelay(res, clientUrl, payload) {
+  const callbackBase = `${clientUrl}/auth-callback.html`;
+  const url = payload.token
+    ? `${callbackBase}?token=${encodeURIComponent(payload.token)}`
+    : `${callbackBase}?error=${encodeURIComponent(payload.error || 'google_auth_failed')}`;
+  return res.redirect(url);
 }
 
 // In-memory deduplication: prevents two concurrent requests with the same auth code
@@ -192,13 +182,13 @@ const googleCallback = async (req, res) => {
     }
 
     const token = signToken(user._id);
-    console.log('[Google OAuth] Step 5 — sending popupRelay to clientUrl:', clientUrl);
-    res.send(popupRelay(clientUrl, { type: 'GOOGLE_AUTH_TOKEN', token }));
-    console.log('[Google OAuth] Step 5 — done, response sent');
+    console.log('[Google OAuth] Step 5 — redirecting popup to auth-callback, clientUrl:', clientUrl);
+    popupRelay(res, clientUrl, { token });
+    console.log('[Google OAuth] Step 5 — redirect sent');
   } catch (err) {
     console.error('[Google OAuth] Callback error:', err.message);
     console.error('[Google OAuth] Stack:', err.stack);
-    res.send(popupRelay(clientUrl, { type: 'GOOGLE_AUTH_ERROR', error: 'google_auth_failed' }));
+    popupRelay(res, clientUrl, { error: 'google_auth_failed' });
   }
 };
 
