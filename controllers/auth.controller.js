@@ -105,26 +105,11 @@ const googleCallback = async (req, res) => {
     : 'http://localhost:5173'
   ).replace(/\/$/, '');
 
-  console.log('[Google OAuth] Step 1 — callback reached');
-  console.log('[Google OAuth] NODE_ENV:', process.env.NODE_ENV);
-  console.log('[Google OAuth] clientUrl:', clientUrl);
-  console.log('[Google OAuth] redirect_uri will be:', buildGoogleRedirectUri());
-  console.log('[Google OAuth] code present:', !!req.query.code);
-
   try {
     const { code } = req.query;
-    if (!code) throw new Error('No code from Google');
-
-    // Deduplicate: if this code is already being processed, silently close the popup
-    if (_usedCodes.has(code)) {
-      console.log('[Google OAuth] Duplicate code detected — closing silently');
-      return res.send('<script>window.close();</script>');
-    }
-    _usedCodes.add(code);
-    setTimeout(() => _usedCodes.delete(code), 60_000); // auto-cleanup after 60s
+    if (!code) return res.redirect(`${clientUrl}?error=google_auth_failed`);
 
     // Exchange code for tokens
-    console.log('[Google OAuth] Step 2 — exchanging code for token...');
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -137,28 +122,19 @@ const googleCallback = async (req, res) => {
       }),
     });
     const tokenData = await tokenRes.json();
-    console.log('[Google OAuth] Step 2 result — access_token present:', !!tokenData.access_token, '| error:', tokenData.error || 'none');
-    if (!tokenData.access_token) {
-      console.error('[Google OAuth] Token exchange error from Google:', JSON.stringify(tokenData));
-      console.error('[Google OAuth] redirect_uri used:', buildGoogleRedirectUri());
-      throw new Error('Token exchange failed');
-    }
+    if (!tokenData.access_token) return res.redirect(`${clientUrl}?error=google_auth_failed`);
 
     // Fetch user info from Google
-    console.log('[Google OAuth] Step 3 — fetching user info from Google...');
     const userRes    = await fetch(GOOGLE_USER_URL, {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const googleUser = await userRes.json();
-    console.log('[Google OAuth] Step 3 result — email:', googleUser.email || 'MISSING');
-    if (!googleUser.email) throw new Error('Could not get email from Google');
+    if (!googleUser.email) return res.redirect(`${clientUrl}?error=google_auth_failed`);
 
-    // Find existing user by googleId or email
-    console.log('[Google OAuth] Step 4 — looking up user in DB...');
+    // Find or create user
     let user = await User.findOne({
       $or: [{ googleId: googleUser.sub }, { email: googleUser.email.toLowerCase() }],
     });
-    console.log('[Google OAuth] Step 4 result — user found:', !!user);
 
     if (user) {
       if (!user.googleId) {
@@ -168,27 +144,22 @@ const googleCallback = async (req, res) => {
         await user.save();
       }
     } else {
-      console.log('[Google OAuth] Step 4b — creating new user...');
       user = await User.create({
         name:         googleUser.name,
         email:        googleUser.email.toLowerCase(),
         googleId:     googleUser.sub,
         isGoogleUser: true,
         avatar:       googleUser.picture,
-        // Google users have no password — set a hash they can never guess
         password:     await bcrypt.hash(googleUser.sub + process.env.JWT_SECRET, 10),
       });
       await sendEmail({ to: user.email, ...emailTemplates.welcome(user.name) });
     }
 
     const token = signToken(user._id);
-    console.log('[Google OAuth] Step 5 — redirecting popup to auth-callback, clientUrl:', clientUrl);
-    popupRelay(res, clientUrl, { token });
-    console.log('[Google OAuth] Step 5 — redirect sent');
+    return res.redirect(`${clientUrl}?token=${token}`);
   } catch (err) {
     console.error('[Google OAuth] Callback error:', err.message);
-    console.error('[Google OAuth] Stack:', err.stack);
-    popupRelay(res, clientUrl, { error: 'google_auth_failed' });
+    return res.redirect(`${clientUrl}?error=google_auth_failed`);
   }
 };
 
