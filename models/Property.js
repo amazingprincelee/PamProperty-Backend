@@ -29,7 +29,7 @@ const PropertySchema = new mongoose.Schema({
   price:        { type: Number },
   pricePerSqm:  { type: Number },
   size:         { type: String },           // e.g. "600sqm", "1 Plot"
-  titleDoc:     { type: String },           // C of O, Survey Plan, None/Not yet
+  titleDoc:     [{ type: String }],          // C of O, Survey Plan, etc. (multi-select)
   zoning:       { type: String },           // Residential, Commercial, Not zoned yet
   landAmenities:[{ type: String }],
 
