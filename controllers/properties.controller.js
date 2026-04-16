@@ -31,11 +31,50 @@ const getProperties = async (req, res) => {
     }
 
     if (search) {
-      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      query.$or = [
-        { title: re }, { address: re }, { state: re },
-        { lga: re },   { description: re }, { hotelName: re },
-      ];
+      const raw = search.trim();
+      const lowerRaw = raw.toLowerCase();
+
+      // ── 1. Type alias normalization ───────────────────────────────
+      const typeAliases = {
+        flat: 'rental', apartment: 'rental',
+        shortlet: 'hotel', lodge: 'hotel', 'short let': 'hotel',
+        plot: 'land', plots: 'land',
+      };
+      if (typeAliases[lowerRaw] && !query.type) {
+        query.type = typeAliases[lowerRaw];
+      }
+
+      // ── 2. Self-contain / studio → bedrooms = 1 ──────────────────
+      if (/self[-\s]?contain|studio/i.test(raw)) {
+        query.bedrooms = query.bedrooms ?? 1;
+      }
+
+      // ── 3. Bedroom extraction ─────────────────────────────────────
+      // Pure spec: "2bed", "2 bed", "2bedroom", "2 bedrooms", "2br"
+      const pureBedroom = lowerRaw.match(/^(\d+)\s*(?:bed(?:room)?s?|br)$/);
+      // Phrase: "3 bedroom flat", "2bed apartment"
+      const phraseBedroom = !pureBedroom && lowerRaw.match(/(\d+)\s*(?:bed(?:room)?s?|br)/);
+
+      if (pureBedroom) {
+        // Only filter by bedroom count — skip text $or so AND doesn't kill results
+        query.bedrooms = parseInt(pureBedroom[1], 10);
+      } else {
+        if (phraseBedroom) query.bedrooms = parseInt(phraseBedroom[1], 10);
+
+        // ── 4. Normalise spacing variants before text search ─────────
+        const normalised = raw
+          .replace(/bed\s+room/gi, 'bedroom')
+          .replace(/bath\s+room/gi, 'bathroom')
+          .replace(/en\s+suite/gi, 'ensuite')
+          .replace(/self\s+contain/gi, 'self-contain')
+          .replace(/short\s+let/gi, 'shortlet');
+
+        const re = new RegExp(normalised.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        query.$or = [
+          { title: re }, { address: re }, { state: re },
+          { lga: re },   { description: re }, { hotelName: re },
+        ];
+      }
     }
 
     const options = {
@@ -128,7 +167,8 @@ const createProperty = async (req, res) => {
     }
 
     console.log('[createProperty] saving property to DB...');
-    const property = await Property.create(data);
+    const created = await Property.create(data);
+    const property = await created.populate('listedBy', 'name avatar phone kycVerified');
     console.log('[createProperty] saved OK — id:', property._id);
     return ok(res, { property }, 'Property submitted for review.', 201);
   } catch (err) {
@@ -191,7 +231,7 @@ const updateAvailability = async (req, res) => {
 // GET /api/properties/my
 const getMyProperties = async (req, res) => {
   try {
-    const properties = await Property.find({ listedBy: req.user._id }).sort({ createdAt: -1 });
+    const properties = await Property.find({ listedBy: req.user._id }).sort({ createdAt: -1 }).populate('listedBy', 'name avatar phone kycVerified');
     return ok(res, { properties });
   } catch (err) {
     return fail(res, err.message);
