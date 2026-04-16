@@ -31,13 +31,17 @@ const getProperties = async (req, res) => {
     }
 
     if (search) {
-      query.$text = { $search: search };
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [
+        { title: re }, { address: re }, { state: re },
+        { lga: re },   { description: re }, { hotelName: re },
+      ];
     }
 
     const options = {
       page:     Number(page),
       limit:    Number(limit),
-      populate: { path: 'listedBy', select: 'name avatar kycVerified' },
+      populate: { path: 'listedBy', select: 'name avatar phone kycVerified' },
       sort:     { createdAt: -1 },
     };
 
