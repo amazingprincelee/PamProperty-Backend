@@ -294,10 +294,71 @@ const getAnalytics = async (req, res) => {
   }
 };
 
+/* ─── APP RELEASE / BROADCAST ──────────────── */
+
+// POST /api/admin/broadcast-update
+const broadcastUpdate = async (req, res) => {
+  try {
+    const { version, releaseNotes, downloadUrl, isCritical, confirmKey } = req.body;
+
+    if (confirmKey !== 'newupdate') return fail(res, 'Invalid confirmation key.', 403);
+    if (!version?.trim())           return fail(res, 'Version number is required.');
+
+    const users  = await User.find({ fcmToken: { $ne: null } }).select('fcmToken').lean();
+    const tokens = users.map(u => u.fcmToken).filter(Boolean);
+
+    const { sendMulticast } = require('../services/push.service');
+    const { successCount, failureCount } = await sendMulticast({
+      tokens,
+      title: `🚀 PamProperty ${version} is here!`,
+      body:  isCritical
+        ? 'A critical update is required. Please update now to continue using the app.'
+        : (releaseNotes?.split('\n')[0] || 'A new version of PamProperty is available. Tap to update.'),
+      data: {
+        type:         'app_update',
+        version,
+        releaseNotes: releaseNotes || '',
+        downloadUrl:  downloadUrl  || '',
+        isCritical:   String(!!isCritical),
+      },
+    });
+
+    const AppRelease = require('../models/AppRelease');
+    const release = await AppRelease.create({
+      version: version.trim(),
+      releaseNotes,
+      downloadUrl,
+      isCritical: !!isCritical,
+      sentBy:     req.user._id,
+      tokenCount: successCount,
+      failCount:  failureCount,
+    });
+
+    return ok(res, { release, successCount, failureCount }, `Broadcast sent to ${successCount} device(s).`);
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// GET /api/admin/releases
+const getReleases = async (req, res) => {
+  try {
+    const AppRelease = require('../models/AppRelease');
+    const releases = await AppRelease.find()
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .populate('sentBy', 'name');
+    return ok(res, { releases });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
 module.exports = {
   getPendingProperties, approveProperty, rejectProperty,
   getAllUsers, changeUserRole,
   getKycQueue, reviewKyc,
   getDisputes, resolveDispute, requestDisputeInfo,
   getAnalytics,
+  broadcastUpdate, getReleases,
 };

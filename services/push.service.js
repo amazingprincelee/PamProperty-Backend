@@ -52,4 +52,54 @@ async function sendPush({ token, title, body, data = {} }) {
   }
 }
 
-module.exports = { sendPush };
+/**
+ * Broadcast an FCM push to many device tokens (batches of 500).
+ * Returns { successCount, failureCount }.
+ */
+async function sendMulticast({ tokens, title, body, data = {} }) {
+  init();
+  if (!isReady || !tokens?.length) return { successCount: 0, failureCount: tokens?.length || 0 };
+
+  const stringData = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]));
+  const chunks = [];
+  for (let i = 0; i < tokens.length; i += 500) chunks.push(tokens.slice(i, i + 500));
+
+  let successCount = 0, failureCount = 0;
+  const invalidTokens = [];
+
+  for (const chunk of chunks) {
+    try {
+      const res = await admin.messaging().sendEachForMulticast({
+        tokens: chunk,
+        notification: { title, body },
+        data: stringData,
+        android: {
+          priority: 'high',
+          notification: { sound: 'default', channelId: 'pamproperty_default' },
+        },
+        apns: {
+          payload: { aps: { sound: 'default', badge: 1 } },
+        },
+      });
+      successCount += res.successCount;
+      failureCount += res.failureCount;
+      res.responses.forEach((r, i) => {
+        if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
+          invalidTokens.push(chunk[i]);
+        }
+      });
+    } catch (err) {
+      console.error('[FCM] sendMulticast error:', err.message);
+      failureCount += chunk.length;
+    }
+  }
+
+  if (invalidTokens.length) {
+    const User = require('../models/User');
+    await User.updateMany({ fcmToken: { $in: invalidTokens } }, { fcmToken: null }).catch(() => {});
+  }
+
+  return { successCount, failureCount };
+}
+
+module.exports = { sendPush, sendMulticast };

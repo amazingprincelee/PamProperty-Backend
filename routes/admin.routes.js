@@ -5,6 +5,7 @@ const {
   getKycQueue, reviewKyc,
   getDisputes, resolveDispute, requestDisputeInfo,
   getAnalytics,
+  broadcastUpdate, getReleases,
 } = require('../controllers/admin.controller');
 const { getAllTickets, updateTicketStatus, replyToTicket } = require('../controllers/support.controller');
 const { protect, adminOnly, superAdminOnly } = require('../middleware/auth');
@@ -37,5 +38,9 @@ router.get('/analytics',                 getAnalytics);
 router.get('/support',                   getAllTickets);
 router.put('/support/:id/status',        updateTicketStatus);
 router.post('/support/:id/reply',        replyToTicket);
+
+// App releases / broadcast
+router.post('/broadcast-update',         broadcastUpdate);
+router.get('/releases',                  getReleases);
 
 module.exports = router;
