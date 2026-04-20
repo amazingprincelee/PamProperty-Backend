@@ -213,4 +213,31 @@ const uploadChatFile = async (req, res) => {
   }
 };
 
-module.exports = { getConversations, getMessages, startConversation, sendMessage, respondToProposal, uploadChatFile };
+// POST /api/chat/start-direct — direct user-to-user conversation (no property)
+const startDirectConversation = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return fail(res, 'userId required.', 400);
+    if (userId.toString() === req.user._id.toString()) return fail(res, 'Cannot message yourself.', 400);
+
+    let conv = await Conversation.findOne({
+      property: null,
+      participants: { $all: [req.user._id, userId], $size: 2 },
+    });
+
+    if (!conv) {
+      conv = await Conversation.create({
+        property: null,
+        participants: [req.user._id, userId],
+      });
+    }
+
+    await conv.populate('participants', 'name avatar');
+
+    return ok(res, { conversation: conv }, 'Conversation ready.', 201);
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = { getConversations, getMessages, startConversation, startDirectConversation, sendMessage, respondToProposal, uploadChatFile };

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const ConversationSchema = new mongoose.Schema({
-  property:     { type: mongoose.Schema.Types.ObjectId, ref: 'Property', required: true },
+  property:     { type: mongoose.Schema.Types.ObjectId, ref: 'Property', default: null },
   participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // [seeker, lister]
   lastMessage:  { type: String, default: '' },
   lastTime:     { type: Date, default: Date.now },

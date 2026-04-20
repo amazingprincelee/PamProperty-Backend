@@ -201,6 +201,30 @@ const createVirtualAccount = async (user) => {
   };
 };
 
+/* ─────────────────────────────────────────────
+   LIST NIGERIAN BANKS (cached in memory 1hr)
+───────────────────────────────────────────── */
+let _banksCache = null;
+let _banksCacheTime = 0;
+
+const getNigerianBanks = async () => {
+  if (_banksCache && Date.now() - _banksCacheTime < 3600000) return _banksCache;
+  const res = await paystackRequest('GET', '/bank?currency=NGN&country=nigeria&perPage=100');
+  if (!res.status) throw new Error('Could not fetch banks');
+  _banksCache = res.data;
+  _banksCacheTime = Date.now();
+  return _banksCache;
+};
+
+/* ─────────────────────────────────────────────
+   RESOLVE ACCOUNT NAME (Paystack verification)
+───────────────────────────────────────────── */
+const resolveAccountName = async (accountNumber, bankCode) => {
+  const res = await paystackRequest('GET', `/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`);
+  if (!res.status) throw new Error(res.message || 'Could not verify account. Check the number and bank.');
+  return res.data.account_name;
+};
+
 module.exports = {
   getBalance,
   initiateTopup,
@@ -210,4 +234,6 @@ module.exports = {
   internalCredit,
   initiateWithdrawal,
   createVirtualAccount,
+  getNigerianBanks,
+  resolveAccountName,
 };

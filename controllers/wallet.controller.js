@@ -1,6 +1,7 @@
-const Transaction = require('../models/Transaction');
-const User        = require('../models/User');
-const { getBalance, initiateTopup, verifyWebhookSignature, creditWallet, initiateWithdrawal, createVirtualAccount } = require('../services/payment.service');
+const Transaction  = require('../models/Transaction');
+const User         = require('../models/User');
+const BankAccount  = require('../models/BankAccount');
+const { getBalance, initiateTopup, verifyWebhookSignature, creditWallet, initiateWithdrawal, createVirtualAccount, getNigerianBanks, resolveAccountName } = require('../services/payment.service');
 const { ok, fail } = require('../utils/response');
 
 // GET /api/wallet/balance
@@ -107,15 +108,112 @@ const getOrCreateVirtualAccount = async (req, res) => {
   }
 };
 
-// POST /api/wallet/withdraw
+// POST /api/wallet/withdraw — withdraw to a saved bank account
 const withdraw = async (req, res) => {
   try {
-    const { amount, bankCode, accountNumber, accountName } = req.body;
-    const data = await initiateWithdrawal({ user: req.user, amountInNaira: amount, bankCode, accountNumber, accountName });
+    const { amount, bankAccountId } = req.body;
+    if (!bankAccountId) return fail(res, 'Please select a saved bank account.', 400);
+
+    const bankAccount = await BankAccount.findOne({ _id: bankAccountId, user: req.user._id });
+    if (!bankAccount) return fail(res, 'Bank account not found.', 404);
+
+    const data = await initiateWithdrawal({
+      user:          req.user,
+      amountInNaira: amount,
+      bankCode:      bankAccount.bankCode,
+      accountNumber: bankAccount.accountNumber,
+      accountName:   bankAccount.accountName,
+    });
     return ok(res, { data }, 'Withdrawal initiated.');
   } catch (err) {
     return fail(res, err.message, 400);
   }
 };
 
-module.exports = { getWalletBalance, getTransactions, topup, paystackWebhook, withdraw, getOrCreateVirtualAccount };
+// GET /api/wallet/banks — list Nigerian banks for dropdown
+const getBanks = async (req, res) => {
+  try {
+    const banks = await getNigerianBanks();
+    return ok(res, { banks });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// GET /api/wallet/resolve-account?account_number=&bank_code= — verify account name
+const resolveAccount = async (req, res) => {
+  try {
+    const { account_number, bank_code } = req.query;
+    if (!account_number || !bank_code) return fail(res, 'account_number and bank_code are required.', 400);
+    if (account_number.length !== 10) return fail(res, 'Account number must be 10 digits.', 400);
+    const accountName = await resolveAccountName(account_number, bank_code);
+    return ok(res, { accountName });
+  } catch (err) {
+    return fail(res, err.message, 400);
+  }
+};
+
+// GET /api/wallet/bank-accounts — list saved bank accounts
+const getBankAccounts = async (req, res) => {
+  try {
+    const accounts = await BankAccount.find({ user: req.user._id }).sort({ isDefault: -1, createdAt: 1 });
+    return ok(res, { accounts });
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// POST /api/wallet/bank-accounts — add a new saved bank account
+const addBankAccount = async (req, res) => {
+  try {
+    const { bankName, bankCode, accountNumber } = req.body;
+    if (!bankName || !bankCode || !accountNumber) return fail(res, 'bankName, bankCode and accountNumber are required.', 400);
+
+    // Check duplicate
+    const existing = await BankAccount.findOne({ user: req.user._id, accountNumber, bankCode });
+    if (existing) return fail(res, 'This account is already saved.', 400);
+
+    // Verify account name with Paystack
+    const accountName = await resolveAccountName(accountNumber, bankCode);
+
+    // First account is default
+    const count = await BankAccount.countDocuments({ user: req.user._id });
+    const account = await BankAccount.create({
+      user: req.user._id,
+      bankName, bankCode, accountNumber, accountName,
+      isDefault: count === 0,
+    });
+
+    return ok(res, { account }, 'Bank account saved.');
+  } catch (err) {
+    return fail(res, err.message, 400);
+  }
+};
+
+// DELETE /api/wallet/bank-accounts/:id — remove a saved bank account
+const deleteBankAccount = async (req, res) => {
+  try {
+    await BankAccount.deleteOne({ _id: req.params.id, user: req.user._id });
+    return ok(res, {}, 'Bank account removed.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// PATCH /api/wallet/bank-accounts/:id/default — set as default
+const setDefaultBankAccount = async (req, res) => {
+  try {
+    await BankAccount.updateMany({ user: req.user._id }, { isDefault: false });
+    await BankAccount.updateOne({ _id: req.params.id, user: req.user._id }, { isDefault: true });
+    return ok(res, {}, 'Default account updated.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+module.exports = {
+  getWalletBalance, getTransactions, topup, paystackWebhook,
+  withdraw, getOrCreateVirtualAccount,
+  getBanks, resolveAccount,
+  getBankAccounts, addBankAccount, deleteBankAccount, setDefaultBankAccount,
+};
