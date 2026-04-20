@@ -1,14 +1,8 @@
-const nodemailer    = require('nodemailer');
+const { Resend } = require('resend');
 const { isUserOnline } = require('../config/socket');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM   = process.env.EMAIL_FROM || 'noreply@pamproperty.com';
 
 const CLIENT_URL  = process.env.CLIENT_URL || 'https://pamprop.vercel.app';
 const LOGO_URL    = `${CLIENT_URL}/logo-icon.png`;
@@ -143,8 +137,8 @@ const baseTemplate = ({ title, bodyHtml, ctaText, ctaUrl }) => `
 ─────────────────────────────────────────────── */
 const sendEmail = async ({ to, subject, html }) => {
   try {
-    await transporter.sendMail({
-      from: `"Pamprop" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+      from: `PamProperty <${FROM}>`,
       to, subject, html,
     });
   } catch (err) {
