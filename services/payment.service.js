@@ -2,8 +2,35 @@ const Paystack    = require('paystack');
 const Transaction = require('../models/Transaction');
 const User        = require('../models/User');
 const crypto      = require('crypto');
+const https       = require('https');
 
 const paystack = Paystack(process.env.PAYSTACK_SECRET_KEY);
+
+/* ─────────────────────────────────────────────
+   PAYSTACK HELPER — JSON request
+───────────────────────────────────────────── */
+const paystackRequest = (method, path, body) => new Promise((resolve, reject) => {
+  const data = body ? JSON.stringify(body) : null;
+  const req = https.request({
+    hostname: 'api.paystack.co',
+    path,
+    method,
+    headers: {
+      Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+      'Content-Type': 'application/json',
+      ...(data && { 'Content-Length': Buffer.byteLength(data) }),
+    },
+  }, (res) => {
+    let raw = '';
+    res.on('data', chunk => raw += chunk);
+    res.on('end', () => {
+      try { resolve(JSON.parse(raw)); } catch { reject(new Error('Invalid JSON from Paystack')); }
+    });
+  });
+  req.on('error', reject);
+  if (data) req.write(data);
+  req.end();
+});
 
 /* ─────────────────────────────────────────────
    COMPUTE WALLET BALANCE
@@ -139,6 +166,41 @@ const initiateWithdrawal = async ({ user, amountInNaira, bankCode, accountNumber
   return transferRes.data;
 };
 
+/* ─────────────────────────────────────────────
+   CREATE PAYSTACK DEDICATED VIRTUAL ACCOUNT
+   1. Create/fetch Paystack customer
+   2. Assign dedicated NUBAN account
+───────────────────────────────────────────── */
+const createVirtualAccount = async (user) => {
+  const nameParts  = user.name.trim().split(' ');
+  const firstName  = nameParts[0];
+  const lastName   = nameParts.slice(1).join(' ') || firstName;
+
+  // Create customer
+  const custRes = await paystackRequest('POST', '/customer', {
+    email:      user.email,
+    first_name: firstName,
+    last_name:  lastName,
+    phone:      user.phone || undefined,
+  });
+  if (!custRes.status) throw new Error(custRes.message || 'Failed to create Paystack customer');
+  const customerCode = custRes.data.customer_code;
+
+  // Assign dedicated virtual account (wema-bank is widely available)
+  const vaRes = await paystackRequest('POST', '/dedicated_account', {
+    customer:       customerCode,
+    preferred_bank: 'wema-bank',
+  });
+  if (!vaRes.status) throw new Error(vaRes.message || 'Failed to create virtual account');
+
+  return {
+    accountNumber: vaRes.data.account_number,
+    bankName:      vaRes.data.bank?.name || 'Wema Bank',
+    accountName:   vaRes.data.account_name || user.name,
+    customerCode,
+  };
+};
+
 module.exports = {
   getBalance,
   initiateTopup,
@@ -147,4 +209,5 @@ module.exports = {
   debitWallet,
   internalCredit,
   initiateWithdrawal,
+  createVirtualAccount,
 };

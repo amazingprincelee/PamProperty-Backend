@@ -1,5 +1,6 @@
 const Transaction = require('../models/Transaction');
-const { getBalance, initiateTopup, verifyWebhookSignature, creditWallet, initiateWithdrawal } = require('../services/payment.service');
+const User        = require('../models/User');
+const { getBalance, initiateTopup, verifyWebhookSignature, creditWallet, initiateWithdrawal, createVirtualAccount } = require('../services/payment.service');
 const { ok, fail } = require('../utils/response');
 
 // GET /api/wallet/balance
@@ -47,22 +48,62 @@ const paystackWebhook = async (req, res) => {
     const event = req.body;
 
     if (event.event === 'charge.success') {
-      const { reference, amount, metadata } = event.data;
-      const { userId, type } = metadata;
+      const { reference, amount, metadata, customer } = event.data;
 
-      if (type === 'topup') {
+      if (metadata?.userId && metadata?.type === 'topup') {
+        // Regular card/bank topup
         await creditWallet({
-          userId,
+          userId:       metadata.userId,
           amountInKobo: amount,
           paystackRef:  reference,
           description:  'Wallet top-up via Paystack',
         });
+      } else if (customer?.customer_code) {
+        // Bank transfer via dedicated virtual account
+        const user = await User.findOne({ paystackCustomerCode: customer.customer_code });
+        if (user) {
+          await creditWallet({
+            userId:       user._id,
+            amountInKobo: amount,
+            paystackRef:  reference,
+            description:  'Bank transfer to virtual account',
+          });
+        }
       }
     }
 
     return res.sendStatus(200);
   } catch (err) {
     return res.sendStatus(200); // Always return 200 to Paystack
+  }
+};
+
+// POST /api/wallet/virtual-account — get or create dedicated virtual account
+const getOrCreateVirtualAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (user.virtualAccountNumber) {
+      return ok(res, {
+        accountNumber: user.virtualAccountNumber,
+        bankName:      user.virtualAccountBank,
+        accountName:   user.virtualAccountName,
+      });
+    }
+
+    const va = await createVirtualAccount(user);
+    user.paystackCustomerCode = va.customerCode;
+    user.virtualAccountNumber = va.accountNumber;
+    user.virtualAccountBank   = va.bankName;
+    user.virtualAccountName   = va.accountName;
+    await user.save();
+
+    return ok(res, {
+      accountNumber: va.accountNumber,
+      bankName:      va.bankName,
+      accountName:   va.accountName,
+    }, 'Virtual account created.');
+  } catch (err) {
+    return fail(res, err.message);
   }
 };
 
@@ -77,4 +118,4 @@ const withdraw = async (req, res) => {
   }
 };
 
-module.exports = { getWalletBalance, getTransactions, topup, paystackWebhook, withdraw };
+module.exports = { getWalletBalance, getTransactions, topup, paystackWebhook, withdraw, getOrCreateVirtualAccount };

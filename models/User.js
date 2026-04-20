@@ -41,6 +41,12 @@ const UserSchema = new mongoose.Schema({
   referralBalance:  { type: Number, default: 0 },   // earnings available to withdraw
   referralEarned:   { type: Number, default: 0 },   // lifetime total earned
 
+  // Paystack virtual account (dedicated NUBAN)
+  paystackCustomerCode:  { type: String, default: null },
+  virtualAccountNumber:  { type: String, default: null },
+  virtualAccountBank:    { type: String, default: null },
+  virtualAccountName:    { type: String, default: null },
+
   // Push notifications
   fcmToken:       { type: String, default: null },
 
