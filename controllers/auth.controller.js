@@ -205,6 +205,56 @@ const googleMobile = async (req, res) => {
   }
 };
 
+// POST /api/auth/forgot-password
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return fail(res, 'Email is required.', 400);
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+resetOtp +resetOtpExpiry');
+    // Always return success to prevent email enumeration
+    if (!user) return ok(res, {}, 'If that email exists, a reset code has been sent.');
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    user.resetOtp       = await bcrypt.hash(otp, 10);
+    user.resetOtpExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    await user.save();
+
+    sendEmail({ to: user.email, ...emailTemplates.passwordReset(user.name, otp) }).catch(e =>
+      console.error('[forgotPassword] email failed:', e.message)
+    );
+    return ok(res, {}, 'If that email exists, a reset code has been sent.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
+// POST /api/auth/reset-password
+const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, password } = req.body;
+    if (!email || !otp || !password) return fail(res, 'Email, OTP and new password are required.', 400);
+    if (password.length < 6) return fail(res, 'Password must be at least 6 characters.', 400);
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+resetOtp +resetOtpExpiry +password');
+    if (!user || !user.resetOtp || !user.resetOtpExpiry) return fail(res, 'Invalid or expired reset code.', 400);
+    if (user.resetOtpExpiry < new Date()) return fail(res, 'Reset code has expired. Please request a new one.', 400);
+
+    const isMatch = await bcrypt.compare(otp.trim(), user.resetOtp);
+    if (!isMatch) return fail(res, 'Incorrect reset code.', 400);
+
+    user.password      = password;
+    user.resetOtp      = undefined;
+    user.resetOtpExpiry = undefined;
+    await user.save();
+
+    const token = signToken(user._id);
+    user.password = undefined;
+    return ok(res, { token, user }, 'Password reset successfully.');
+  } catch (err) {
+    return fail(res, err.message);
+  }
+};
+
 // GET /api/auth/me
 const getMe = async (req, res) => {
   try {
@@ -214,4 +264,4 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { register, login, googleInitiate, googleCallback, googleMobile, getMe };
+module.exports = { register, login, googleInitiate, googleCallback, googleMobile, getMe, forgotPassword, resetPassword };

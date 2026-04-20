@@ -397,6 +397,25 @@ const emailTemplates = {
     }),
   }),
 
+  passwordReset: (name, otp) => ({
+    subject: 'Your Pamprop Password Reset Code',
+    html: baseTemplate({
+      title: 'Reset Your Password 🔐',
+      bodyHtml: `
+        <p>Hi <strong>${name}</strong>, we received a request to reset your Pamprop password.</p>
+        <p>Use the code below to reset your password. It expires in <strong>15 minutes</strong>.</p>
+        <div style="
+          background:#f0f4ff;border:2px dashed ${BRAND_NAVY};
+          border-radius:16px;padding:24px;margin:24px 0;text-align:center;
+        ">
+          <div style="font-size:13px;color:#64748b;margin-bottom:8px;letter-spacing:0.5px;">YOUR RESET CODE</div>
+          <div style="font-size:40px;font-weight:900;color:${BRAND_NAVY};letter-spacing:10px;">${otp}</div>
+        </div>
+        <p style="color:#64748b;font-size:13px;">If you didn't request this, you can safely ignore this email. Your password will not change.</p>
+      `,
+    }),
+  }),
+
   newFollower: (followerName) => ({
     subject: `${followerName} started following you on Pamprop`,
     html: baseTemplate({

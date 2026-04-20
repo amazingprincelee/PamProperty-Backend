@@ -26,6 +26,10 @@ const UserSchema = new mongoose.Schema({
   ninDob:             { type: String, default: '' },
   ninVerified:        { type: Boolean, default: false },
 
+  // Password reset OTP
+  resetOtp:        { type: String, select: false },
+  resetOtpExpiry:  { type: Date,   select: false },
+
   // Social
   following:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   followers:      [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
