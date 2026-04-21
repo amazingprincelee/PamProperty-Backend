@@ -17,6 +17,7 @@ const NotificationSchema = new mongoose.Schema({
   relatedHotelBooking: { type: mongoose.Schema.Types.ObjectId, ref: 'HotelBooking',  default: null },
   relatedProperty:     { type: mongoose.Schema.Types.ObjectId, ref: 'Property',      default: null },
   relatedConversation: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation',  default: null },
+  relatedUser:         { type: mongoose.Schema.Types.ObjectId, ref: 'User',          default: null },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Notification', NotificationSchema);

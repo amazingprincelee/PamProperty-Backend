@@ -6,7 +6,8 @@ const getNotifications = async (req, res) => {
   try {
     const notifications = await Notification.find({ recipient: req.user._id })
       .sort({ createdAt: -1 })
-      .limit(50);
+      .limit(50)
+      .populate('relatedUser', 'name avatar');
     return ok(res, { notifications });
   } catch (err) {
     return fail(res, err.message);

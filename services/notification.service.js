@@ -8,7 +8,7 @@ const { sendWhatsApp } = require('./whatsapp.service');
 const sendNotification = async ({
   recipientId, recipientEmail,
   title, message, type = 'system',
-  relatedEscrow, relatedHotelBooking, relatedProperty, relatedConversation,
+  relatedEscrow, relatedHotelBooking, relatedProperty, relatedConversation, relatedUser,
   emailSubject, emailHtml,
   // Optional overrides — set to false to suppress a channel for a specific notification
   pushEnabled      = true,
@@ -25,6 +25,7 @@ const sendNotification = async ({
     relatedHotelBooking: relatedHotelBooking || null,
     relatedProperty:     relatedProperty     || null,
     relatedConversation: relatedConversation || null,
+    relatedUser:         relatedUser         || null,
   });
 
   // 2. Push real-time via Socket.io

@@ -75,7 +75,8 @@ const toggleFollow = async (req, res) => {
         recipientEmail: target.email,
         title:          'New Follower',
         message:        `${req.user.name} started following you.`,
-        type:           'system',
+        type:           'follow',
+        relatedUser:    req.user._id,
         emailSubject:   et.subject,
         emailHtml:      et.html,
       });

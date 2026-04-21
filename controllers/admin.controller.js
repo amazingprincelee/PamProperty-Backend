@@ -334,6 +334,18 @@ const broadcastUpdate = async (req, res) => {
       failCount:  failureCount,
     });
 
+    // Real-time: push to all currently connected sockets instantly
+    try {
+      const { getIO } = require('../config/socket');
+      getIO().emit('app_update', {
+        type:         'app_update',
+        version,
+        releaseNotes: releaseNotes || '',
+        downloadUrl:  downloadUrl  || '',
+        isCritical:   !!isCritical,
+      });
+    } catch { /* socket may not be initialised in test env */ }
+
     return ok(res, { release, successCount, failureCount }, `Broadcast sent to ${successCount} device(s).`);
   } catch (err) {
     return fail(res, err.message);
