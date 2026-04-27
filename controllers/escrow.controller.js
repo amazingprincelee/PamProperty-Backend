@@ -16,11 +16,31 @@ const createSession = async (req, res) => {
 
     // Enforce flow: must have an agreed date before paying
     const Conversation = require('../models/Conversation');
-    const agreedConv = await Conversation.findOne({
+    const Message      = require('../models/Message');
+
+    let agreedConv = await Conversation.findOne({
       property:     propertyId,
       participants: req.user._id,
       visitStage:   'agreed',
     });
+
+    if (!agreedConv) {
+      // Fallback: visitStage may be stale — check if messages have an accepted date_proposal
+      const conv = await Conversation.findOne({ property: propertyId, participants: req.user._id });
+      if (conv) {
+        const acceptedMsg = await Message.findOne({
+          conversation:   conv._id,
+          type:           'date_proposal',
+          proposalStatus: 'accepted',
+        });
+        if (acceptedMsg) {
+          // Heal the stale visitStage and allow payment
+          await Conversation.findByIdAndUpdate(conv._id, { visitStage: 'agreed' });
+          agreedConv = conv;
+        }
+      }
+    }
+
     if (!agreedConv) {
       return fail(res, 'Please complete the inspection request flow first. Go to chat, request a visit, and agree on a date with the lister before paying.', 400);
     }

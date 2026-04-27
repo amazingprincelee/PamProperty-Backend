@@ -52,6 +52,8 @@ app.use('/api/support',        require('./routes/support.routes'));
 app.use('/api/referrals',      require('./routes/referral.routes'));
 app.use('/api/admin/settings', require('./routes/settings.routes'));
 
+
+
 // ─── Health Check ───
 app.get('/api/health', (req, res) => res.json({ status: 'PamProperty API is running.' }));
 
