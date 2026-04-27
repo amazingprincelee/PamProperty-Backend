@@ -186,10 +186,31 @@ const updateProperty = async (req, res) => {
       return fail(res, 'Not authorised.', 403);
     }
 
-    if (req.uploadedUrls?.length) req.body.images = req.uploadedUrls;
+    // Upload new images if provided; otherwise keep existing
+    if (req.files?.images) {
+      const files = Array.isArray(req.files.images) ? req.files.images : [req.files.images];
+      const results = await Promise.all(
+        files.map(f => uploadToCloudinary(f.data, 'pamprop/properties'))
+      );
+      req.body.images = results.map(r => r.secure_url);
+    }
 
-    const updated = await Property.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    return ok(res, { property: updated }, 'Property updated.');
+    if (req.files?.video) {
+      const file = Array.isArray(req.files.video) ? req.files.video[0] : req.files.video;
+      const result = await uploadToCloudinary(file.data, 'pamprop/property-videos');
+      req.body.video = result.secure_url;
+    }
+
+    // Resubmission: if listing was rejected, put it back in the pending queue for admin review
+    if (property.status === 'rejected') {
+      req.body.status          = 'pending';
+      req.body.rejectionReason = null;
+      req.body.adminNote       = null;
+    }
+
+    const updated = await Property.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const message = property.status === 'rejected' ? 'Listing resubmitted for review.' : 'Property updated.';
+    return ok(res, { property: updated }, message);
   } catch (err) {
     return fail(res, err.message);
   }
